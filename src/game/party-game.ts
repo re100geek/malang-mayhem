@@ -117,7 +117,7 @@ export class PartyGame {
   private playerRoot(color: string): THREE.Object3D {
     const source = this.assetScene?.getObjectByName('HumanoidRig')
     const root = source ? SkeletonUtils.clone(source) : this.fallbackPlayer(color)
-    root.scale.setScalar(.72)
+    root.scale.setScalar(.85)
     root.traverse((obj: THREE.Object3D) => {
       const mesh = obj as THREE.Mesh
       if (!mesh.isMesh) return
@@ -258,13 +258,13 @@ export class PartyGame {
     const me = this.players.get(this.me)
     if (this.state?.phase === 'play' && me) {
       this.cameraTarget.lerp(new THREE.Vector3(me.root.position.x, 0, me.root.position.z), .08)
-      const desired = new THREE.Vector3(this.cameraTarget.x, 9.4, this.cameraTarget.z + 13.5)
+      const desired = new THREE.Vector3(this.cameraTarget.x, 6.1, this.cameraTarget.z + 11.4)
       this.camera.position.lerp(desired, .055)
-      this.camera.lookAt(this.cameraTarget.x, .8, this.cameraTarget.z)
+      this.camera.lookAt(this.cameraTarget.x, 1.15, this.cameraTarget.z)
     } else {
       const t = this.clock.getElapsedTime()
-      const desired = new THREE.Vector3(Math.sin(t * .12) * 13, 9, Math.cos(t * .12) * 13)
-      this.camera.position.lerp(desired, .015); this.camera.lookAt(0, .7, 0)
+      const desired = new THREE.Vector3(Math.sin(t * .12) * 12, 7.2, Math.cos(t * .12) * 12)
+      this.camera.position.lerp(desired, .015); this.camera.lookAt(0, .95, 0)
     }
     this.renderer.render(this.scene, this.camera)
   }
