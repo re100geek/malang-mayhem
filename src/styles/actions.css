@@ -1,7 +1,5 @@
 /* 행동별 쿨타임 UI · 대기실 인라인 닉네임 변경 */
-.prank-picker button.is-cooling{opacity:.5;background:rgba(23,21,47,.92);border-color:rgba(255,249,232,.28);color:var(--yellow);position:relative}
-.prank-picker button.is-cooling::after{content:'';position:absolute;left:6px;right:6px;bottom:4px;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--yellow),transparent);opacity:.8}
-.prank-picker button.is-cooling::before{content:attr(data-cooldown);position:absolute;top:-7px;right:-3px;padding:1px 5px;border-radius:999px;background:var(--ink);color:var(--yellow);font-size:8px;letter-spacing:.02em}
+.prank-picker button.is-cooling{opacity:.55;background:rgba(23,21,47,.92);border-color:rgba(255,249,232,.28);color:var(--yellow)}
 .action-round{position:absolute}
 .action-round.is-cooling{filter:grayscale(.35) brightness(.82)}
 .action-round .cooldown-badge{position:absolute;inset:auto 0 6px;font-size:11px;font-weight:800;letter-spacing:.02em;text-align:center;color:var(--ink);opacity:.85}
@@ -22,5 +20,4 @@
   .lobby-rename input{flex:1 1 96px;font-size:12px}
   .lobby-colors{margin-left:0;width:100%}
   .lobby-colors .color-pick{width:22px;height:22px}
-  .prank-picker button.is-cooling::before{top:-5px;right:0}
 }
