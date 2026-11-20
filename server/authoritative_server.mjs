@@ -24,7 +24,10 @@ const JUMP_SPEED = 6.5
 const GRAVITY = 18
 const PRANK_RANGE = 2.5
 // 행동별 서버 쿨타임 — 무한 연타를 막고 동작마다 다른 리듬을 준다.
-const ACTION_COOLDOWN_MS = { headbutt: 1500, bonk: 2000, tackle: 2800, hug: 2500, grab: 800, jump: 180, item: 2500 }
+// 테스트에서만 MM_COOLDOWN_SCALE로 늘려 쿨타임 표시를 길게 관찰할 수 있다(기본 1 = 실제 값).
+const COOLDOWN_SCALE = Math.max(0.05, Number(process.env.MM_COOLDOWN_SCALE || 1) || 1)
+const scaleCd = ms => Math.round(ms * COOLDOWN_SCALE)
+const ACTION_COOLDOWN_MS = { headbutt: scaleCd(1500), bonk: scaleCd(2000), tackle: scaleCd(2800), hug: scaleCd(2500), grab: scaleCd(800), jump: scaleCd(180), item: scaleCd(2500) }
 const PRANK_IMMUNITY_MS = 650
 const PRANK_IMPULSE = 11.5
 const PRANK_BOUNCE = 3.8
@@ -85,13 +88,70 @@ const THROW_IMPULSE = 12.5
 const SHATTER_IMPULSE = 9.5
 const JUMP_BUFFER_MS = 140
 const COYOTE_MS = 110
-const ROUND_DEFS = [
-  { index: 0, mode: 'solo', title: '미끄덩 바나나 배달', short: '바나나를 들고 배달존으로!', duration: 75, target: 18 },
-  { index: 1, mode: 'coop', title: '피자 공장 대참사', short: '재료를 모아 초대형 피자를 완성!', duration: 90, target: 12 },
-  { index: 2, mode: 'solo', title: '왕관 좀 빌려줘', short: '왕관을 오래 쓰고 도망쳐!', duration: 75, target: 0 },
-  { index: 3, mode: 'coop', title: '풍선탑을 지켜라', short: '풍선을 중앙 탑에 붙여라!', duration: 90, target: 16 },
-  { index: 4, mode: 'solo', title: '우당탕 발판 축제', short: '안내 색 발판에서 살아남아!', duration: 75, target: 0 },
-]
+const ROUND_SECONDS = 75
+// ── 신규 미니게임: 시한폭탄 · 회전 스위퍼 · 꼬리 뺏기 ──
+const BOMB_FUSE_MS = Number(process.env.MM_BOMB_FUSE_MS || 0) || 12_000
+const BOMB_PASS_IMMUNE_MS = 600
+const BOMB_PASS_COOLDOWN_MS = 380
+const BOMB_PASS_POINTS = 15
+const BOMB_SURVIVE_POINTS = 120
+const SWEEPER_BASE_SPEED = Number(process.env.MM_SWEEPER_SPEED || 0) || 1.05
+const SWEEPER_MAX_SPEED = 2.35
+const SWEEPER_RADIUS = 9.2
+const SWEEPER_BAR_HALF = 0.55
+const SWEEPER_CLEAR_JUMP = 0.72
+const SWEEPER_WARN_MS = 1200
+const SWEEPER_REVERSE_EVERY_MS = 10_000
+const SWEEPER_HIT_IMPULSE = 13.5
+const SWEEPER_HIT_IMMUNE_MS = 420
+const SWEEPER_SURVIVE_RATE = 9
+const SWEEPER_ASSIST_POINTS = 60
+const SWEEPER_ASSIST_WINDOW_MS = 1500
+const TAIL_STEAL_MS = 800
+const TAIL_SCORE_RATE = 15
+const TAIL_FINISH_BONUS = 200
+const TAIL_START_IMMUNE_MS = 2200
+const TAIL_TRANSFER_IMMUNE_MS = 900
+
+/**
+ * 미니게임 8종 라이브러리. 매치 시작마다 개인전 3 + 협동전 2를 중복 없이 뽑아 5라운드를 만든다.
+ * `mode`는 점수 계산 방식, `type`은 서버 판정·클라이언트 렌더 방식이다.
+ */
+const ROUND_LIBRARY = {
+  banana: { id: 'banana', type: 'banana', mode: 'solo', title: '미끄덩 바나나 배달', short: '바나나를 들고 배달존으로!', duration: 75, target: 18 },
+  pizza: { id: 'pizza', type: 'pizza', mode: 'coop', title: '피자 공장 대참사', short: '재료를 모아 초대형 피자를 완성!', duration: 90, target: 12 },
+  crown: { id: 'crown', type: 'crown', mode: 'solo', title: '왕관 좀 빌려줘', short: '왕관을 오래 쓰고 도망쳐!', duration: 75, target: 0 },
+  balloon: { id: 'balloon', type: 'balloon', mode: 'coop', title: '풍선탑을 지켜라', short: '풍선을 중앙 탑에 붙여라!', duration: 90, target: 16 },
+  platform: { id: 'platform', type: 'platform', mode: 'solo', title: '우당탕 발판 축제', short: '안내 색 발판에서 살아남아!', duration: 75, target: 0 },
+  hot_potato: { id: 'hot_potato', type: 'bomb', mode: 'solo', title: '💣 시한폭탄 넘기기', short: '폭탄을 남에게 넘겨라!', duration: ROUND_SECONDS, target: 0 },
+  sweeper: { id: 'sweeper', type: 'sweeper', mode: 'solo', title: '🌪️ 빙글빙글 장애물 점프', short: '회전 막대를 점프로 넘어!', duration: ROUND_SECONDS, target: 0 },
+  tail_tag: { id: 'tail_tag', type: 'tail', mode: 'solo', title: '🎯 꼬리 뺏기', short: '꼬리를 지키고 남의 꼬리를 뺏어라!', duration: ROUND_SECONDS, target: 0 },
+}
+const SOLO_POOL = ['banana', 'crown', 'platform', 'hot_potato', 'sweeper', 'tail_tag']
+const COOP_POOL = ['pizza', 'balloon']
+// 테스트·수동 검증용 고정 순서(MM_START_ROUND가 지정된 경우에만 사용).
+const LEGACY_ORDER = ['banana', 'pizza', 'crown', 'balloon', 'platform']
+
+const shuffle = list => {
+  const copy = [...list]
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy
+}
+/** 개인전 3 + 협동전 2, 중복 없이 5라운드. 8종 풀 전체에서 뽑는다. */
+function makeRoundPlan() {
+  const pinned = String(process.env.MM_ROUND_IDS || '').split(',').map(v => v.trim()).filter(Boolean)
+  if (pinned.length) {
+    const picked = pinned.map(id => ROUND_LIBRARY[id]).filter(Boolean).slice(0, 5)
+    if (picked.length) return picked
+  }
+  if (ENV_START_ROUND > 0) return LEGACY_ORDER.map(id => ROUND_LIBRARY[id])
+  const solo = shuffle(SOLO_POOL).slice(0, 3).map(id => ROUND_LIBRARY[id])
+  const coop = shuffle(COOP_POOL).slice(0, 2).map(id => ROUND_LIBRARY[id])
+  return [solo[0], coop[0], solo[1], coop[1], solo[2]]
+}
 const SOLO_POINTS = [1000, 800, 650, 500, 400, 300, 200, 100]
 const COLORS = ['#ff5d8f', '#57c7ff', '#a877ff', '#62e8aa', '#ffbd4a', '#ff7b68', '#61e0d1', '#f28dff']
 const COLOR_NAMES = ['딸기', '소다', '포도', '민트', '레몬', '복숭아', '아쿠아', '라벤더']
@@ -99,6 +159,19 @@ const PLATFORM_COLORS = ['#ff5d8f', '#57c7ff', '#a877ff', '#62e8aa', '#ffbd4a', 
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
+const angleGap = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d) }
+const awayFrom = (from, threat, distance) => {
+  const dx = from.x - threat.x, dz = from.z - threat.z
+  const length = Math.hypot(dx, dz) || 1
+  const x = clamp(from.x + (dx / length) * distance, -WORLD_RADIUS + 1.2, WORLD_RADIUS - 1.2)
+  const z = clamp(from.z + (dz / length) * distance, -WORLD_RADIUS + 1.2, WORLD_RADIUS - 1.2)
+  return { x, z }
+}
+const sweepersNear = (player, sweeper) => {
+  const radius = Math.hypot(player.x, player.z)
+  if (radius < 0.6 || radius > sweeper.radius) return false
+  return angleGap(Math.atan2(player.z, player.x), sweeper.angle) < 0.9
+}
 const cleanName = value => String(value || '말랑이').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 14) || '말랑이'
 const cleanCode = value => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
 const token = () => randomBytes(18).toString('base64url')
@@ -108,7 +181,7 @@ const spawnFor = seat => {
   const angle = (i / 8) * Math.PI * 2
   return { x: Math.cos(angle) * 5.6, z: Math.sin(angle) * 5.6 }
 }
-const emptyStats = () => ({ bonkHits: 0, tackleHits: 0, hugHits: 0, headbuttHits: 0, falls: 0, respawns: 0, bananaSlips: 0, jellySoaks: 0, shockwaves: 0, reverses: 0, deliveries: 0, grabs: 0, throws: 0, megaDuo: 0, megaSolo: 0, megaJoins: 0, tetherYanks: 0 })
+const emptyStats = () => ({ bonkHits: 0, tackleHits: 0, hugHits: 0, headbuttHits: 0, falls: 0, respawns: 0, bananaSlips: 0, jellySoaks: 0, shockwaves: 0, reverses: 0, deliveries: 0, grabs: 0, throws: 0, megaDuo: 0, megaSolo: 0, megaJoins: 0, tetherYanks: 0, bombPasses: 0, bombBooms: 0, sweeperHits: 0, sweeperAssists: 0, tailSteals: 0, tailTime: 0 })
 const AWARD_TAGLINES = {
   prankster: '오늘 가장 많은 장난을 성공시켰어요.',
   tumbler: '넘어지고 떨어져도 계속 웃겼어요.',
@@ -118,9 +191,12 @@ const AWARD_TAGLINES = {
   carrier: '무거운 황금 소품을 끝까지 배달했어요.',
   champion: '오늘의 최고 점수 주인공이에요.',
   busy: '배달과 목표 수행을 가장 부지런히 했어요.',
+  bombPasser: '폭탄을 남에게 넘기는 손재주가 최고였어요.',
+  tailThief: '남의 꼬리를 가장 많이 낚아챘어요.',
+  sweeperAce: '상대를 회전 막대 앞으로 밀어 넣는 데 성공했어요.',
 }
 const awardTagline = award => AWARD_TAGLINES[award.kind] || '오늘의 활약을 기억할게요.'
-const playerSnapshot = (p, viewerId = '') => ({
+const playerSnapshot = (p, viewerId = '', tails = []) => ({
   id: p.id, seat: p.seat, name: p.name, color: p.color, colorName: p.colorName, bot: !!p.isBot,
   connected: !!p.isBot || !!p.socket?.connected, ready: p.ready, host: p.host,
   x: Number(p.x.toFixed(3)), z: Number(p.z.toFixed(3)), vx: Number(p.vx.toFixed(3)), vz: Number(p.vz.toFixed(3)),
@@ -133,6 +209,8 @@ const playerSnapshot = (p, viewerId = '') => ({
   missionProgress: p.id === viewerId ? p.missionProgress : 0,
   missionComplete: p.id === viewerId ? p.missionComplete : false,
   grabbedBy: p.grabbedBy || '',
+  hasTail: tails.includes(p.id),
+  stealCooldown: Math.max(0, p.stealCooldownUntil - Date.now()),
   partnerId: p.partnerId || '', respawning: !!p.respawning, respawnIn: Math.max(0, p.respawnAt - Date.now()), respawns: p.respawns,
   megaDeliveries: p.megaDeliveries, megaDuo: p.stats.megaDuo, megaSolo: p.stats.megaSolo, tetherYanks: p.stats.tetherYanks,
   action: p.motionUntil > Date.now() ? p.motion : 'Idle', status: { slip: Math.max(0, p.slipUntil - Date.now()), slow: Math.max(0, p.slowUntil - Date.now()), ink: Math.max(0, p.inkUntil - Date.now()), reverse: Math.max(0, p.reverseUntil - Date.now()), sticky: Math.max(0, p.stickyUntil - Date.now()), stagger: Math.max(0, p.staggerUntil - Date.now()), knockdown: Math.max(0, p.knockdownUntil - Date.now()), hug: Math.max(0, p.hugUntil - Date.now()), spin: Number(p.spin.toFixed(3)), immune: Math.max(0, p.prankImmuneUntil - Date.now()) },
@@ -152,6 +230,7 @@ function newPlayer(id, seat, name, colorIndex, isBot = false, botDifficulty = 'n
     slipUntil: 0, slowUntil: 0, inkUntil: 0, reverseUntil: 0, stickyUntil: 0, staggerUntil: 0, knockdownUntil: 0, hugUntil: 0, prankImmuneUntil: 0, spin: 0, motion: 'Idle', motionUntil: 0,
     secretMission: null, missionProgress: 0, missionComplete: false, lastBonkTargetId: '', grabbedBy: '', grabTargetId: '', grabUntil: 0, grabCooldownUntil: 0, escapePresses: 0,
     partnerId: '', respawning: false, respawnAt: 0, respawnReason: '', respawns: 0, megaDeliveries: 0, megaCarryTime: 0, lastTetherAt: 0,
+    stealCooldownUntil: 0, tailImmuneUntil: 0, lastPrankedAt: 0, lastPrankedBy: '', tailTime: 0, sweeperHitAt: 0,
     stats: emptyStats(), roundStats: emptyStats(),
   }
 }
@@ -177,6 +256,7 @@ class Room {
     this.platforms = []
     this.objects = {}
     this.pairs = []
+    this.plan = makeRoundPlan()
   }
   bump(player, key, amount = 1) { player.stats[key] = (player.stats[key] || 0) + amount; player.roundStats[key] = (player.roundStats[key] || 0) + amount }
   partnerOf(player) { return player.partnerId ? this.players.get(player.partnerId) || null : null }
@@ -193,7 +273,7 @@ class Room {
     }
   }
 
-  get definition() { return this.roundIndex >= 0 ? ROUND_DEFS[this.roundIndex] : null }
+  get definition() { return this.roundIndex >= 0 ? this.plan[this.roundIndex] || null : null }
   connected() { return [...this.players.values()].filter(p => p.isBot || p.socket?.connected) }
   humans() { return [...this.players.values()].filter(p => !p.isBot && p.socket?.connected) }
   allPlayers() { return [...this.players.values()] }
@@ -216,7 +296,7 @@ class Room {
       player.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }
       socket.data.room = this.code
       socket.data.playerId = player.id
-      socket.emit('welcome', { marker: MARKER, code: this.code, resumeToken: player.token, player: playerSnapshot(player, player.id), resumed: true })
+      socket.emit('welcome', { marker: MARKER, code: this.code, resumeToken: player.token, player: playerSnapshot(player, player.id, this.round?.tails || []), resumed: true })
       this.broadcast()
       return player
     }
@@ -270,7 +350,8 @@ class Room {
     if (this.phase !== 'lobby' || player.id !== this.hostId || this.humans().length < 1) return false
     if (this.humans().length === 1) this.addBots(difficulty)
     for (const p of this.players.values()) { p.stats = emptyStats(); p.roundStats = emptyStats(); p.respawns = 0; p.megaDeliveries = 0; p.falls = 0; p.prankSuccesses = 0; p.prankCount = 0 }
-    this.roundIndex = ENV_START_ROUND >= 0 && ENV_START_ROUND < ROUND_DEFS.length ? ENV_START_ROUND : 0
+    this.plan = makeRoundPlan()
+    this.roundIndex = ENV_START_ROUND >= 0 && ENV_START_ROUND < this.plan.length ? ENV_START_ROUND : 0
     this.startCountdown()
     return true
   }
@@ -291,11 +372,11 @@ class Room {
     this.roundStartedAt = 0
     for (const p of this.players.values()) { p.roundScore = 0; p.contribution = 0; p.crownTime = 0; p.carried = ''; p.roundAlive = true; p.roundStats = emptyStats(); p.partnerId = ''; p.respawning = false; p.respawnAt = 0; p.respawnReason = ''; p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }; p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }; p.slipUntil = 0; p.slowUntil = 0; p.inkUntil = 0; p.reverseUntil = 0; p.stickyUntil = 0; p.staggerUntil = 0; p.knockdownUntil = 0; p.hugUntil = 0; p.prankImmuneUntil = 0; p.spin = 0; p.motion = 'Idle'; p.motionUntil = 0; p.grabbedBy = ''; p.grabTargetId = ''; p.grabUntil = 0; p.escapePresses = 0; p.missionProgress = 0; p.missionComplete = false; p.lastBonkTargetId = '' }
     this.round = this.buildRound(def)
-    if (def.mode === 'coop') this.round.mega = { id: MEGA_ID, kind: def.index === 1 ? 'golden_pizza' : 'golden_trophy', name: def.index === 1 ? '초대형 황금 피자' : '황금 트로피', x: MEGA_SPAWN.x, z: MEGA_SPAWN.z, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
+    if (def.mode === 'coop') this.round.mega = { id: MEGA_ID, kind: def.type === 'pizza' ? 'golden_pizza' : 'golden_trophy', name: def.type === 'pizza' ? '초대형 황금 피자' : '황금 트로피', x: MEGA_SPAWN.x, z: MEGA_SPAWN.z, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
     this.assignPairs()
-    for (const p of this.players.values()) { const card = SECRET_MISSIONS[(p.seat - 1 + def.index) % SECRET_MISSIONS.length]; p.secretMission = { ...card } }
+    for (const p of this.players.values()) { const card = SECRET_MISSIONS[(p.seat - 1 + this.roundIndex) % SECRET_MISSIONS.length]; p.secretMission = { ...card } }
     const pairLine = this.pairs.length ? ` · 고무줄 짝꿍 ${this.pairs.length}쌍` : ''
-    this.emitEvent('round_intro', `${def.title} — ${def.short}${pairLine}`, { roundIndex: def.index, definition: def, pairs: this.pairs.map(pair => [pair.a, pair.b]) })
+    this.emitEvent('round_intro', `${def.title} — ${def.short}${pairLine}`, { roundIndex: this.roundIndex, definition: def, plan: this.plan.map(entry => entry.id), pairs: this.pairs.map(pair => [pair.a, pair.b]) })
     this.broadcast()
   }
   buildRound(def) {
@@ -306,30 +387,132 @@ class Room {
     ]
     const around = (count, radius = 7) => Array.from({ length: count }, (_, i) => {
       const a = (i / count) * Math.PI * 2 + Math.random() * 0.18
-      return { id: `${def.index}-${i}`, x: Math.cos(a) * radius, z: Math.sin(a) * radius, carriedBy: '', delivered: false }
+      return { id: `${this.roundIndex}-${i}`, x: Math.cos(a) * radius, z: Math.sin(a) * radius, carriedBy: '', delivered: false }
     })
-    const prankItems = Array.from({ length: PRANK_ITEM_COUNT }, (_, i) => { const a = (i / PRANK_ITEM_COUNT) * Math.PI * 2 + Math.random() * .4; return { id: `prank-${def.index}-${i}`, type: PRANK_TYPES[i % PRANK_TYPES.length], x: Math.cos(a) * (4 + Math.random() * 4), z: Math.sin(a) * (4 + Math.random() * 4), consumed: false, spawnedAt: Date.now(), respawnAt: 0 } })
-    if (def.index === 0) return { type: 'banana', bananas: around(18, 6.8), delivered: 0, delivery: { x: 0, z: -7 }, prankItems }
-    if (def.index === 1) return { type: 'pizza', ingredients: Array.from({ length: 12 }, (_, i) => ({ id: `${i}`, kind: ['dough', 'sauce', 'cheese', 'pepperoni'][i % 4], x: Math.cos(i) * 7, z: Math.sin(i) * 7, carriedBy: '', delivered: false })), delivered: 0, total: 12, station: { x: 0, z: 0 }, prankItems }
-    if (def.index === 2) return { type: 'crown', crown: { x: 0, z: 0, owner: '' }, prankItems }
-    if (def.index === 3) return { type: 'balloon', balloons: around(16, 7), delivered: 0, tower: { x: 0, z: 0 }, prankItems }
+    const prankItems = Array.from({ length: PRANK_ITEM_COUNT }, (_, i) => { const a = (i / PRANK_ITEM_COUNT) * Math.PI * 2 + Math.random() * .4; return { id: `prank-${this.roundIndex}-${i}`, type: PRANK_TYPES[i % PRANK_TYPES.length], x: Math.cos(a) * (4 + Math.random() * 4), z: Math.sin(a) * (4 + Math.random() * 4), consumed: false, spawnedAt: Date.now(), respawnAt: 0 } })
+    if (def.type === 'banana') return { type: 'banana', bananas: around(18, 6.8), delivered: 0, delivery: { x: 0, z: -7 }, prankItems }
+    if (def.type === 'pizza') return { type: 'pizza', ingredients: Array.from({ length: 12 }, (_, i) => ({ id: `${i}`, kind: ['dough', 'sauce', 'cheese', 'pepperoni'][i % 4], x: Math.cos(i) * 7, z: Math.sin(i) * 7, carriedBy: '', delivered: false })), delivered: 0, total: 12, station: { x: 0, z: 0 }, prankItems }
+    if (def.type === 'crown') return { type: 'crown', crown: { x: 0, z: 0, owner: '' }, prankItems }
+    if (def.type === 'balloon') return { type: 'balloon', balloons: around(16, 7), delivered: 0, tower: { x: 0, z: 0 }, prankItems }
+    if (def.type === 'bomb') return { type: 'bomb', bomb: { holder: '', x: 0, z: 0, fuseEndsAt: 0, immuneUntil: 0, passCooldownUntil: 0, passes: 0, booms: 0 }, prankItems }
+    if (def.type === 'sweeper') return { type: 'sweeper', sweeper: { angle: 0, speed: SWEEPER_BASE_SPEED, direction: 1, radius: SWEEPER_RADIUS, warnUntil: 0, reverseAt: Date.now() + SWEEPER_REVERSE_EVERY_MS, hits: 0 }, prankItems }
+    if (def.type === 'tail') return { type: 'tail', tails: [], tailStolen: 0, prankItems }
     return { type: 'platform', platforms: this.platforms, targetColor: this.targetColor, pulseAt: Date.now() + 5000, prankItems }
   }
   beginPlay() {
-    this.phase = 'play'; this.roundStartedAt = Date.now(); this.phaseEndsAt = this.roundStartedAt + (ENV_ROUND_MS > 0 ? ENV_ROUND_MS : this.definition.duration * 1000)
-    for (const p of this.connected()) { p.x = spawnFor(p.seat).x; p.z = spawnFor(p.seat).z; p.vx = 0; p.vz = 0; p.roundAlive = true; p.respawning = false }
+    const now = Date.now()
+    this.phase = 'play'; this.roundStartedAt = now; this.phaseEndsAt = now + (ENV_ROUND_MS > 0 ? ENV_ROUND_MS : this.definition.duration * 1000)
+    for (const p of this.connected()) {
+      p.x = spawnFor(p.seat).x; p.z = spawnFor(p.seat).z; p.vx = 0; p.vz = 0; p.roundAlive = true; p.respawning = false
+      // 라운드가 새로 시작되면 이전 라운드의 쿨타임이 남아 입력을 막지 않게 한다.
+      p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }
+      p.grabCooldownUntil = 0
+      p.stealCooldownUntil = 0
+      p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: p.input.prankType || 'headbutt' }
+    }
+    if (this.round?.type === 'bomb') this.assignBomb(null, now)
+    if (this.round?.type === 'tail') this.assignTails()
+    if (this.round?.type === 'sweeper') { this.round.sweeper.angle = 0; this.round.sweeper.reverseAt = now + SWEEPER_REVERSE_EVERY_MS }
     this.emitEvent('round_start', '출발!')
     this.broadcast()
+  }
+  /** 시한폭탄: 무작위 생존자에게 새 폭탄을 쥐여 준다(방금 터진 사람은 제외). */
+  assignBomb(excludeId, now = Date.now()) {
+    const bomb = this.round?.bomb
+    if (!bomb) return null
+    const pool = this.connected().filter(p => !p.respawning && p.id !== excludeId)
+    const holder = pool[Math.floor(Math.random() * pool.length)] || null
+    bomb.holder = holder?.id || ''
+    bomb.x = holder?.x || 0
+    bomb.z = holder?.z || 0
+    bomb.fuseEndsAt = now + BOMB_FUSE_MS
+    bomb.immuneUntil = now + BOMB_PASS_IMMUNE_MS
+    bomb.passCooldownUntil = 0
+    if (holder) this.emitEvent('bomb_pick', `${holder.name}님이 폭탄을 받았다! ${Math.round(BOMB_FUSE_MS / 1000)}초 안에 넘겨라!`, { playerId: holder.id, x: holder.x, z: holder.z, fuse: BOMB_FUSE_MS })
+    return holder
+  }
+  /** 꼬리 뺏기: 절반(올림)의 플레이어에게 눈에 띄는 꼬리를 달아 준다. */
+  assignTails() {
+    const round = this.round
+    if (!round) return
+    const players = this.connected().sort((a, b) => a.seat - b.seat)
+    const count = Math.max(1, Math.ceil(players.length / 2))
+    const picked = shuffle(players).slice(0, count)
+    // 사람만 있는 방에서 봇이 꼬리를 독차지하면 재미가 없으니, 사람 1명은 반드시 꼬리를 받는다.
+    const humans = picked.filter(player => !player.isBot)
+    if (!humans.length && count >= 1) {
+      const human = players.find(player => !player.isBot)
+      if (human) { picked[0] = human }
+    }
+    round.tails = picked.map(player => player.id)
+    round.tailStolen = 0
+    // 꼬리를 받자마자 바로 뺏기지 않도록 2초 보호.
+    for (const player of picked) player.tailImmuneUntil = Date.now() + TAIL_START_IMMUNE_MS
+    this.emitEvent('tail_start', `꼬리 ${count}개 배정! 꼬리를 뺏고 지켜라!`, { tails: round.tails.map(id => this.players.get(id)?.name).filter(Boolean) })
+  }
+  hasTail(player) { return Boolean(this.round?.tails?.includes(player.id)) }
+  giveTail(player) {
+    if (!this.round || this.hasTail(player)) return
+    this.round.tails.push(player.id)
+  }
+  takeTail(player) {
+    if (!this.round) return false
+    const had = this.hasTail(player)
+    this.round.tails = this.round.tails.filter(id => id !== player.id)
+    return had
+  }
+  /** 폭탄을 상대에게 넘긴다(넘김 무적 0.6초로 즉시 되넘김 방지). */
+  passBomb(from, to, now = Date.now()) {
+    const bomb = this.round?.bomb
+    if (!bomb || bomb.holder !== from.id || !to || to.id === from.id || to.respawning) return false
+    if (now < bomb.immuneUntil || now < bomb.passCooldownUntil) return false
+    bomb.holder = to.id
+    bomb.x = to.x
+    bomb.z = to.z
+    bomb.immuneUntil = now + BOMB_PASS_IMMUNE_MS
+    bomb.passCooldownUntil = now + BOMB_PASS_COOLDOWN_MS
+    bomb.passes++
+    from.roundScore += BOMB_PASS_POINTS
+    from.prankSuccesses++
+    this.bump(from, 'bombPasses')
+    this.emitEvent('bomb_pass', `${from.name}님이 ${to.name}님에게 폭탄을 넘겼다! +${BOMB_PASS_POINTS}P`, { fromId: from.id, toId: to.id, x: to.x, z: to.z, itemType: 'bomb' })
+    return true
+  }
+  explodeBomb(now) {
+    const bomb = this.round?.bomb
+    if (!bomb) return
+    const holder = this.players.get(bomb.holder)
+    if (!holder) { this.assignBomb(null, now); return }
+    const survivors = this.connected().filter(p => p.id !== holder.id && !p.respawning)
+    for (const survivor of survivors) {
+      survivor.roundScore += BOMB_SURVIVE_POINTS
+      this.bump(survivor, 'bombBooms')
+    }
+    this.bump(holder, 'falls')
+    this.emitEvent('bomb_boom', `${holder.name}님 폭발! 주변 생존자 ${survivors.length}명 +${BOMB_SURVIVE_POINTS}P`, { playerId: holder.id, x: holder.x, z: holder.z, itemType: 'bomb', countdown: RESPAWN_COUNTDOWN_MS })
+    holder.vx = 0; holder.vz = 0
+    this.startRespawn(holder, 'boom')
+    this.assignBomb(holder.id, now + RESPAWN_COUNTDOWN_MS)
   }
   finishRound() {
     if (this.phase !== 'play') return
     const def = this.definition
+    // 꼬리 뺏기: 라운드 종료 시점에 꼬리를 지키고 있던 사람에게 보유 보너스.
+    if (this.round?.type === 'tail') {
+      for (const id of this.round.tails) {
+        const owner = this.players.get(id)
+        if (!owner) continue
+        owner.roundScore += TAIL_FINISH_BONUS
+      }
+      const keepers = this.round.tails.map(id => this.players.get(id)?.name).filter(Boolean)
+      if (keepers.length) this.emitEvent('tail_bonus', `꼬리 보유 보너스 +${TAIL_FINISH_BONUS}P — ${keepers.join('·')}`, { itemType: 'tail', bonus: TAIL_FINISH_BONUS })
+    }
     const results = this.allPlayers().map(p => ({ id: p.id, name: p.name, seat: p.seat, color: p.color, roundScore: p.roundScore, contribution: p.contribution, points: 0, total: p.score }))
     if (def.mode === 'solo') {
       const order = [...this.allPlayers()].sort((a, b) => b.roundScore - a.roundScore || a.seat - b.seat)
       order.forEach((p, index) => { const points = SOLO_POINTS[index] || 0; p.score += points; p.soloScore += points; results.find(r => r.id === p.id).points = points; results.find(r => r.id === p.id).total = p.score })
     } else {
-      const progress = def.index === 1 ? this.round.delivered / this.round.total : this.round.delivered / def.target
+      const progress = def.type === 'pizza' ? this.round.delivered / this.round.total : this.round.delivered / def.target
       const shared = Math.round(clamp(progress, 0, 1) * 600)
       const contributionTotal = this.allPlayers().reduce((n, p) => n + p.contribution, 0)
       for (const p of this.allPlayers()) {
@@ -368,6 +551,12 @@ class Room {
     if (duo && duo.roundStats.megaDuo > 0) recap.push({ label: '찰떡 합동 운반', name: duo.name, value: `${duo.roundStats.megaDuo}회 성공` })
     const yanker = [...players].sort((a, b) => (b.roundStats.tetherYanks || 0) - (a.roundStats.tetherYanks || 0))[0]
     if (yanker && yanker.roundStats.tetherYanks > 0 && recap.length < 3) recap.push({ label: '고무줄 팽!', name: yanker.name, value: `${yanker.roundStats.tetherYanks}회` })
+    const passer = [...players].sort((a, b) => (b.roundStats.bombPasses || 0) - (a.roundStats.bombPasses || 0))[0]
+    if (passer && passer.roundStats.bombPasses > 0 && recap.length < 3) recap.push({ label: '폭탄 배구', name: passer.name, value: `${passer.roundStats.bombPasses}회 넘김` })
+    const thief = [...players].sort((a, b) => (b.roundStats.tailSteals || 0) - (a.roundStats.tailSteals || 0))[0]
+    if (thief && thief.roundStats.tailSteals > 0 && recap.length < 3) recap.push({ label: '꼬리 도둑', name: thief.name, value: `${thief.roundStats.tailSteals}회 강탈` })
+    const sweeper = [...players].sort((a, b) => (b.roundStats.sweeperAssists || 0) - (a.roundStats.sweeperAssists || 0))[0]
+    if (sweeper && sweeper.roundStats.sweeperAssists > 0 && recap.length < 3) recap.push({ label: '스위퍼 콤보', name: sweeper.name, value: `${sweeper.roundStats.sweeperAssists}회 밀어넣기` })
     return recap.slice(0, 3)
   }
   progressValue() {
@@ -427,6 +616,15 @@ class Room {
     const carrier = best(players.filter(p => p.stats.megaDuo + p.stats.megaSolo > 0), p => p.stats.megaDuo * 10 + p.stats.megaSolo)
     if (carrier) candidates.push({ kind: 'carrier', title: '황금 운반꾼', emoji: '🍕', ids: [carrier.id], names: [carrier.name], value: carrier.stats.megaDuo + carrier.stats.megaSolo, metric: `합동 운반 ${carrier.stats.megaDuo}회 · 단독 ${carrier.stats.megaSolo}회`, color: carrier.color })
 
+    const bombPasser = best(players.filter(p => p.stats.bombPasses > 0), p => p.stats.bombPasses)
+    if (bombPasser) candidates.push({ kind: 'bombPasser', title: '폭탄 배구왕', emoji: '💣', ids: [bombPasser.id], names: [bombPasser.name], value: bombPasser.stats.bombPasses, metric: `폭탄 넘기기 ${bombPasser.stats.bombPasses}회`, color: bombPasser.color })
+
+    const tailThief = best(players.filter(p => p.stats.tailSteals > 0), p => p.stats.tailSteals)
+    if (tailThief) candidates.push({ kind: 'tailThief', title: '꼬리 도둑', emoji: '🎯', ids: [tailThief.id], names: [tailThief.name], value: tailThief.stats.tailSteals, metric: `꼬리 강탈 ${tailThief.stats.tailSteals}회`, color: tailThief.color })
+
+    const sweeperAce = best(players.filter(p => p.stats.sweeperAssists > 0), p => p.stats.sweeperAssists)
+    if (sweeperAce) candidates.push({ kind: 'sweeperAce', title: '스위퍼 콤보왕', emoji: '🌪️', ids: [sweeperAce.id], names: [sweeperAce.name], value: sweeperAce.stats.sweeperAssists, metric: `막대에 밀어넣기 ${sweeperAce.stats.sweeperAssists}회`, color: sweeperAce.color })
+
     const awards = candidates.slice(0, 4)
     // 활동이 적은 매치에서도 시상식이 비지 않도록 점수 기준 대체 어워드로 2개를 채운다.
     const filler = [
@@ -443,6 +641,10 @@ class Room {
     if (megas.duo + megas.solo > 0) lines.push({ label: '합동 운반', text: `황금 소품 배달 ${megas.duo + megas.solo}회 (짝꿍 ${megas.duo} · 단독 ${megas.solo})`, value: `+${megas.duo * MEGA_DUO_SCORE + megas.solo * MEGA_SOLO_SCORE}P` })
     const totalFalls = players.reduce((n, p) => n + p.respawns, 0)
     if (totalFalls > 0) lines.push({ label: '와장창', text: `2초 리스폰 총 ${totalFalls}회`, value: `${Math.max(...players.map(p => p.respawns))}회 최다` })
+    const totalPasses = players.reduce((n, p) => n + p.stats.bombPasses, 0)
+    if (totalPasses > 0) lines.push({ label: '폭탄', text: `폭탄 넘기기 ${totalPasses}회 · 폭발 ${players.reduce((n, p) => n + p.stats.bombBooms, 0)}회 생존`, value: `+${BOMB_SURVIVE_POINTS}P` })
+    const totalSteals = players.reduce((n, p) => n + p.stats.tailSteals, 0)
+    if (totalSteals > 0) lines.push({ label: '꼬리', text: `꼬리 강탈 ${totalSteals}회`, value: `${Math.max(...players.map(p => p.stats.tailSteals))}회 최다` })
     const totalYanks = players.reduce((n, p) => n + p.stats.tetherYanks, 0)
     if (totalYanks > 0) lines.push({ label: '고무줄', text: `짝꿍 고무줄이 팽 튄 횟수 ${totalYanks}회`, value: `${Math.max(...players.map(p => p.stats.tetherYanks))}회 최다` })
     const totalSlips = players.reduce((n, p) => n + p.stats.bananaSlips + p.stats.jellySoaks, 0)
@@ -460,6 +662,7 @@ class Room {
   handleInput(player, input) {
     if (!['lobby', 'countdown', 'play'].includes(this.phase)) return
     if (!input || typeof input !== 'object') return
+    if (player.respawning) return
     let ix = clamp(Number(input.x) || 0, -1, 1), iz = clamp(Number(input.z) || 0, -1, 1)
     const inputLength = Math.hypot(ix, iz); if (inputLength > 1) { ix /= inputLength; iz /= inputLength }
     player.input.x = ix; player.input.z = iz
@@ -524,6 +727,9 @@ class Room {
         const nx = dx / d, nz = dz / d, excess = d - TETHER_MAX
         if (!a.respawning) { a.x = clamp(a.x + nx * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2); a.z = clamp(a.z + nz * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2) }
         if (!b.respawning) { b.x = clamp(b.x - nx * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2); b.z = clamp(b.z - nz * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2) }
+        // 한 틱에 최대 길이를 넘겨도 스냅샷에는 실제(보정된) 거리만 남긴다.
+        pair.length = Math.min(dist(a, b), TETHER_MAX)
+        pair.tension = 1
       }
     }
   }
@@ -558,6 +764,10 @@ class Room {
     player.carried = ''
     player.vx = 0; player.vz = 0; player.jumpV = 0; player.jumpY = 0
     player.grabbedBy = ''; player.grabTargetId = ''
+    // 리스폰 중 대기한 입력이 복귀 직후 자동 발동하지 않게 비운다.
+    player.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: player.input.prankType || 'headbutt' }
+    player.jumpBufferUntil = 0
+    player.grabUntil = 0
     player.staggerUntil = 0; player.knockdownUntil = 0; player.hugUntil = 0
     player.respawns++
     this.bump(player, 'respawns')
@@ -671,7 +881,16 @@ class Room {
     if (!player.input.interact || now < player.cooldowns.grab) return
     const target = this.connected().filter(p => p.id !== player.id && !p.grabbedBy && dist(player, p) <= GRAB_RANGE).sort((a, b) => dist(player, a) - dist(player, b))[0]
     if (!target) return
-    player.input.interact = false; player.grabTargetId = target.id; player.grabUntil = now + GRAB_DURATION_MS; player.cooldowns.grab = now + GRAB_COOLDOWN_MS; target.grabbedBy = player.id; target.escapePresses = 0; this.bump(player, 'grabs'); this.emitEvent('grab', `${player.name}님이 ${target.name}님을 붙잡았다!`, { attackerId: player.id, targetId: target.id, x: target.x, z: target.z })
+    player.input.interact = false; player.grabTargetId = target.id; player.grabUntil = now + GRAB_DURATION_MS; player.cooldowns.grab = now + GRAB_COOLDOWN_MS; target.grabbedBy = player.id; target.escapePresses = 0; this.bump(player, 'grabs')
+    if (this.round?.type === 'bomb' && this.round.bomb?.holder === player.id) this.passBomb(player, target, now)
+    if (this.round?.type === 'tail' && this.hasTail(target) && !this.hasTail(player) && now >= player.stealCooldownUntil && now >= target.tailImmuneUntil) {
+      this.takeTail(target); this.giveTail(player)
+      player.stealCooldownUntil = now + TAIL_STEAL_MS; target.stealCooldownUntil = now + TAIL_STEAL_MS
+      player.tailImmuneUntil = now + TAIL_TRANSFER_IMMUNE_MS; target.tailImmuneUntil = now + TAIL_TRANSFER_IMMUNE_MS
+      this.round.tailStolen++; this.bump(player, 'tailSteals')
+      this.emitEvent('tail_steal', `${player.name}님이 ${target.name}님의 꼬리를 낚아챘다!`, { attackerId: player.id, targetId: target.id, x: target.x, z: target.z, itemType: 'tail' })
+    }
+    this.emitEvent('grab', `${player.name}님이 ${target.name}님을 붙잡았다!`, { attackerId: player.id, targetId: target.id, x: target.x, z: target.z })
   }
   processPrank(attacker) {
     if (!attacker.input.prank) return
@@ -689,11 +908,27 @@ class Room {
     const dx = target.x - attacker.x, dz = target.z - attacker.z, length = Math.hypot(dx, dz) || 1
     const nx = dx / length, nz = dz / length
     target.prankImmuneUntil = now + PRANK_IMMUNITY_MS
+    target.lastPrankedAt = now
+    target.lastPrankedBy = attacker.id
+    // 시한폭탄: 폭탄을 든 사람이 때리면 상대에게 폭탄이 넘어간다(박치기·꿀밤·태클).
+    if (this.round?.type === 'bomb' && prankType !== 'hug' && this.round.bomb?.holder === attacker.id) this.passBomb(attacker, target, now)
     target.motion = 'Hit'; target.motionUntil = now + (prankType === 'tackle' ? TACKLE_KNOCKDOWN_MS : BONK_STAGGER_MS)
     if (prankType === 'bonk') { target.staggerUntil = now + BONK_STAGGER_MS; target.spin = (target.x + target.z) % 2 ? 4.8 : -4.8; target.vx += nx * 4.2; target.vz += nz * 4.2 }
     else if (prankType === 'tackle') { target.knockdownUntil = now + TACKLE_KNOCKDOWN_MS; target.vx += nx * 9.4; target.vz += nz * 9.4; target.jumpV = Math.max(target.jumpV, 1.6) }
     else if (prankType === 'hug') { attacker.hugUntil = now + HUG_SLOW_MS; target.hugUntil = now + HUG_SLOW_MS; target.vx *= .25; target.vz *= .25 }
     else { target.vx += nx * PRANK_IMPULSE; target.vz += nz * PRANK_IMPULSE; target.jumpV = Math.max(target.jumpV, PRANK_BOUNCE) }
+    // 꼬리 뺏기: 꼬리가 없는 사람이 꼬리 보유자를 때리면 꼬리를 강탈한다(0.8초 강탈 쿨타임).
+    if (this.round?.type === 'tail' && this.hasTail(target) && !this.hasTail(attacker) && now >= attacker.stealCooldownUntil && now >= target.tailImmuneUntil) {
+      this.takeTail(target)
+      this.giveTail(attacker)
+      attacker.stealCooldownUntil = now + TAIL_STEAL_MS
+      target.stealCooldownUntil = now + TAIL_STEAL_MS
+      attacker.tailImmuneUntil = now + TAIL_TRANSFER_IMMUNE_MS
+      target.tailImmuneUntil = now + TAIL_TRANSFER_IMMUNE_MS
+      this.round.tailStolen++
+      this.bump(attacker, 'tailSteals')
+      this.emitEvent('tail_steal', `${attacker.name}님이 ${target.name}님의 꼬리를 뺏었다!`, { attackerId: attacker.id, targetId: target.id, x: target.x, z: target.z, itemType: 'tail' })
+    }
     const edge = Math.hypot(target.x + nx * 1.25, target.z + nz * 1.25) >= WORLD_RADIUS - .35
     const dropped = Boolean(target.carried && (prankType === 'tackle' || target.jumpY < 1.1 || edge)) && this.dropCarried(target)
     this.bump(attacker, prankType === 'bonk' ? 'bonkHits' : prankType === 'tackle' ? 'tackleHits' : prankType === 'hug' ? 'hugHits' : 'headbuttHits')
@@ -728,7 +963,7 @@ class Room {
   updatePlayer(player, dt) {
     if (player.respawning) return
     const input = player.input
-    const roundIndex = this.definition?.index ?? 0
+    const roundType = this.definition?.type ?? 'banana'
     const reverse = Date.now() < player.reverseUntil ? -1 : 1
     const now = Date.now()
     const slipping = now < player.slipUntil
@@ -736,12 +971,12 @@ class Room {
     const mega = this.round?.mega
     const megaFactor = player.carried === MEGA_ID && mega ? (mega.carriers.length >= 2 ? MEGA_PAIR_FACTOR : MEGA_SINGLE_FACTOR) : 1
     const speedFactor = player.grabbedBy ? .12 : now < player.knockdownUntil ? .08 : now < player.hugUntil ? .25 : now < player.staggerUntil ? .35 : now < player.slowUntil ? .42 : slipping ? BANANA_SLIP_ACCEL : 1
-    const accel = sticky ? 8 : slipping ? 7 : (roundIndex === 0 ? MOVE_ACCEL : MOVE_ACCEL)
+    const accel = sticky ? 8 : slipping ? 7 : MOVE_ACCEL
     const desiredX = input.x * reverse * MOVE_SPEED * speedFactor * megaFactor, desiredZ = input.z * reverse * MOVE_SPEED * speedFactor * megaFactor
     const currentSpeed = Math.hypot(player.vx, player.vz), braking = Math.hypot(desiredX, desiredZ) < currentSpeed
     player.vx += (desiredX - player.vx) * Math.min(1, (braking ? BRAKE_ACCEL : accel) * dt)
     player.vz += (desiredZ - player.vz) * Math.min(1, (braking ? BRAKE_ACCEL : accel) * dt)
-    if (roundIndex === 0 || slipping || sticky) { const friction = slipping ? 0.994 : sticky ? 0.975 : 0.99; player.vx *= friction; player.vz *= friction }
+    if (roundType === 'banana' || slipping || sticky) { const friction = slipping ? 0.994 : sticky ? 0.975 : 0.99; player.vx *= friction; player.vz *= friction }
     player.spin *= Math.pow(0.08, dt)
     if (player.jumpY <= 0.01) player.coyoteUntil = now + COYOTE_MS
     if (now < player.jumpBufferUntil && (player.jumpY <= 0.01 || now <= player.coyoteUntil) && now >= player.cooldowns.jump) {
@@ -781,12 +1016,53 @@ class Room {
       if (mega.carriers.includes(bot.id)) objective = mega.zone
       else if (!bot.carried && (partnerCarrying || (nearMega && Math.random() < (bot.botDifficulty === 'hard' ? 0.45 : 0.28)))) objective = mega
     }
-    if (objective === target && bot.carried) objective = r?.delivery || r?.station || r?.tower || objective
-    else if (objective === target && list.length) objective = list.filter(o => !o.delivered && !o.carriedBy).sort((a, b) => dist(bot, a) - dist(bot, b))[0] || objective
-    else if (objective === target && r?.type === 'crown') objective = r.crown.owner && r.crown.owner !== bot.id ? this.players.get(r.crown.owner) : r.crown
-    else if (objective === target && r?.type === 'platform') objective = this.platforms.find(p => p.color === r.targetColor) || objective
-    if (objective) { const dx = objective.x - bot.x, dz = objective.z - bot.z, d = Math.hypot(dx, dz) || 1; bot.input.x = dx / d; bot.input.z = dz / d; bot.input.interact = d < 1.8 }
-    if (target && dist(bot, target) <= PRANK_RANGE && Math.random() < (bot.botDifficulty === 'hard' ? .35 : bot.botDifficulty === 'normal' ? .18 : .08)) { bot.input.prank = true; bot.input.prankType = MOTION_PRANKS[Math.floor(Math.random() * MOTION_PRANKS.length)] }
+    // ── 신규 미니게임 봇 AI: 폭탄은 떠넘기고, 스위퍼는 점프로 피하고, 꼬리는 쫓고 도망간다 ──
+    let handled = false
+    let forcePrank = false
+    if (r?.type === 'bomb' && r.bomb) {
+      handled = true
+      if (r.bomb.holder === bot.id) {
+        // 폭탄을 든 봇은 가장 가까운 사람에게 달려들어 넘긴다.
+        objective = target
+        if (target && dist(bot, target) <= PRANK_RANGE - 0.15) forcePrank = true
+      } else {
+        const holder = this.players.get(r.bomb.holder)
+        if (holder) {
+          const away = awayFrom(bot, holder, 4.5)
+          objective = away
+        }
+      }
+    } else if (r?.type === 'sweeper') {
+      handled = true
+      const sweeper = r.sweeper
+      // 막대 뒤쪽(회전 반대편)으로 붙어 안전 거리를 유지한다.
+      const safeAngle = sweeper.angle + (sweeper.direction > 0 ? -1.05 : 1.05)
+      objective = { x: Math.cos(safeAngle) * 3.1, z: Math.sin(safeAngle) * 3.1 }
+      const theta = Math.atan2(bot.z, bot.x)
+      const lead = sweeper.direction > 0 ? 0.42 : 0.42
+      if (angleGap(theta, sweeper.angle + sweeper.direction * lead) < 0.55) bot.input.jump = true
+      if (target && dist(bot, target) <= PRANK_RANGE && sweepersNear(bot, sweeper) && Math.random() < 0.12) forcePrank = true
+    } else if (r?.type === 'tail') {
+      handled = true
+      const iHaveTail = this.hasTail(bot)
+      if (iHaveTail) {
+        const chaser = this.connected().filter(p => p.id !== bot.id && !this.hasTail(p)).sort((a, b) => dist(bot, a) - dist(bot, b))[0]
+        if (chaser) objective = awayFrom(bot, chaser, 4.2)
+      } else {
+        const owners = this.connected().filter(p => this.hasTail(p)).sort((a, b) => dist(bot, a) - dist(bot, b))
+        objective = owners[0] || target
+        if (owners[0] && dist(bot, owners[0]) <= PRANK_RANGE - 0.1) forcePrank = true
+      }
+    }
+    if (!handled) {
+      if (objective === target && bot.carried) objective = r?.delivery || r?.station || r?.tower || objective
+      else if (objective === target && list.length) objective = list.filter(o => !o.delivered && !o.carriedBy).sort((a, b) => dist(bot, a) - dist(bot, b))[0] || objective
+      else if (objective === target && r?.type === 'crown') objective = r.crown.owner && r.crown.owner !== bot.id ? this.players.get(r.crown.owner) : r.crown
+      else if (objective === target && r?.type === 'platform') objective = this.platforms.find(p => p.color === r.targetColor) || objective
+    }
+    if (objective) { const dx = objective.x - bot.x, dz = objective.z - bot.z, d = Math.hypot(dx, dz) || 1; bot.input.x = dx / d; bot.input.z = dz / d; if (!handled) bot.input.interact = d < 1.8 }
+    if (forcePrank) { bot.input.prank = true; bot.input.prankType = r?.type === 'bomb' ? 'headbutt' : 'bonk' }
+    else if (target && dist(bot, target) <= PRANK_RANGE && Math.random() < (bot.botDifficulty === 'hard' ? .35 : bot.botDifficulty === 'normal' ? .18 : .08)) { bot.input.prank = true; bot.input.prankType = MOTION_PRANKS[Math.floor(Math.random() * MOTION_PRANKS.length)] }
     if (Math.random() < .025) bot.input.jump = true
   }
   updateInteraction(player) {
@@ -850,6 +1126,73 @@ class Room {
         if (owner) { owner.crownTime += dt; owner.roundScore = Math.floor(owner.crownTime * 10); owner.contribution = owner.roundScore }
       }
     }
+    if (r.type === 'bomb') {
+      const bomb = r.bomb
+      const holder = this.players.get(bomb.holder)
+      if (!holder || holder.respawning) {
+        if (!bomb.holder || now >= bomb.immuneUntil) this.assignBomb(holder?.id, now)
+      } else {
+        bomb.x = holder.x; bomb.z = holder.z
+        if (now >= bomb.fuseEndsAt) this.explodeBomb(now)
+      }
+    }
+    if (r.type === 'sweeper') {
+      const sweeper = r.sweeper
+      const elapsed = Math.max(0, now - this.roundStartedAt)
+      const ramp = Math.min(1, elapsed / Math.max(1, this.phaseEndsAt - this.roundStartedAt))
+      sweeper.speed = SWEEPER_BASE_SPEED + (SWEEPER_MAX_SPEED - SWEEPER_BASE_SPEED) * ramp
+      if (now >= sweeper.reverseAt && !sweeper.warnUntil) {
+        sweeper.warnUntil = now + SWEEPER_WARN_MS
+        sweeper.reverseAt = now + SWEEPER_REVERSE_EVERY_MS + SWEEPER_WARN_MS
+        this.emitEvent('sweeper_warn', '막대가 잠시 뒤 반대로 돈다! 준비!', { warnUntil: sweeper.warnUntil })
+      }
+      if (sweeper.warnUntil && now >= sweeper.warnUntil) {
+        sweeper.direction *= -1
+        sweeper.warnUntil = 0
+        this.emitEvent('sweeper_reverse', '막대 방향 반전!', { direction: sweeper.direction })
+      }
+      sweeper.angle += sweeper.speed * sweeper.direction * dt
+      if (sweeper.angle > Math.PI * 2 || sweeper.angle < -Math.PI * 2) sweeper.angle %= Math.PI * 2
+      for (const p of this.connected()) {
+        if (p.respawning) continue
+        p.roundScore += dt * SWEEPER_SURVIVE_RATE
+        const radius = Math.hypot(p.x, p.z)
+        if (radius < 1.25 || radius > sweeper.radius) continue
+        const theta = Math.atan2(p.z, p.x)
+        const width = Math.min(1.2, SWEEPER_BAR_HALF / Math.max(0.6, radius))
+        if (angleGap(theta, sweeper.angle) > width) continue
+        if (p.jumpY > SWEEPER_CLEAR_JUMP || now < p.prankImmuneUntil) continue
+        // 막대에 맞으면 접선 방향으로 강하게 튕겨 나가 장외 위험이 생긴다.
+        const tangent = sweeper.angle + (sweeper.direction > 0 ? Math.PI / 2 : -Math.PI / 2)
+        p.vx += (Math.cos(tangent) + Math.sign(p.x || 1) * 0.45) * SWEEPER_HIT_IMPULSE * 0.7
+        p.vz += (Math.sin(tangent) + Math.sign(p.z || 1) * 0.45) * SWEEPER_HIT_IMPULSE * 0.7
+        p.jumpV = Math.max(p.jumpV, 4.4)
+        p.prankImmuneUntil = now + SWEEPER_HIT_IMMUNE_MS
+        p.staggerUntil = now + 700
+        p.knockdownUntil = now + 500
+        p.motion = 'Hit'; p.motionUntil = now + 800
+        p.sweeperHitAt = now
+        sweeper.hits++
+        this.bump(p, 'sweeperHits')
+        const assist = p.lastPrankedBy && now - p.lastPrankedAt <= SWEEPER_ASSIST_WINDOW_MS ? this.players.get(p.lastPrankedBy) : null
+        if (assist && assist.id !== p.id) {
+          assist.roundScore += SWEEPER_ASSIST_POINTS
+          this.bump(assist, 'sweeperAssists')
+          this.emitEvent('sweeper_assist', `${assist.name}님이 ${p.name}님을 막대에 밀어 넣었다! +${SWEEPER_ASSIST_POINTS}P`, { attackerId: assist.id, targetId: p.id, x: p.x, z: p.z, itemType: 'sweeper' })
+        } else {
+          this.emitEvent('sweeper_hit', `${p.name}님이 회전 막대에 맞고 튕겨 나갔다!`, { playerId: p.id, x: p.x, z: p.z, itemType: 'sweeper' })
+        }
+      }
+    }
+    if (r.type === 'tail') {
+      for (const id of r.tails) {
+        const owner = this.players.get(id)
+        if (!owner || owner.respawning) continue
+        owner.roundScore += dt * TAIL_SCORE_RATE
+        owner.tailTime += dt
+        owner.contribution = Math.floor(owner.roundScore)
+      }
+    }
     if (r.type === 'platform') {
       if (Date.now() >= r.pulseAt) {
         r.targetColor = PLATFORM_COLORS[Math.floor(Math.random() * PLATFORM_COLORS.length)]
@@ -893,7 +1236,7 @@ class Room {
       return
     }
     if (this.phase === 'result' && now >= this.phaseEndsAt) {
-      if (this.roundIndex >= ROUND_DEFS.length - 1) this.finalise()
+      if (this.roundIndex >= this.plan.length - 1) this.finalise()
       else { this.roundIndex++; this.startCountdown() }
     }
   }
@@ -902,7 +1245,9 @@ class Room {
     return {
       marker: MARKER, code: this.code, phase: this.phase, roundIndex: this.roundIndex,
       round: def ? { ...def, timeLeft: this.phase === 'play' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : (this.phase === 'countdown' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : 0) } : null,
-      phaseEndsAt: this.phaseEndsAt, hostId: this.hostId, players: this.allPlayers().map(p => playerSnapshot(p, viewerId)),
+      phaseEndsAt: this.phaseEndsAt, hostId: this.hostId, players: this.allPlayers().map(p => playerSnapshot(p, viewerId, this.round?.tails || [])),
+      plan: this.plan.map(entry => ({ id: entry.id, mode: entry.mode, title: entry.title })),
+      cooldownMs: ACTION_COOLDOWN_MS,
       objects: this.round ? this.serializedObjects() : {}, platforms: this.platforms,
       pairs: this.pairs.map(pair => ({ a: pair.a, b: pair.b, length: Number((pair.length || 0).toFixed(2)), tension: Number((pair.tension || 0).toFixed(2)), rest: TETHER_REST, max: TETHER_MAX })),
       targetColor: this.targetColor, result: this.roundResult, event: this.event, ...extra,
@@ -912,11 +1257,30 @@ class Room {
     if (!this.round) return {}
     const mega = this.round.mega ? { ...this.round.mega, carriers: [...this.round.mega.carriers] } : null
     const prankItems = this.round.prankItems?.filter(o => !o.consumed).map(o => ({ ...o })) ?? []
-    if (this.round.type === 'banana') return { type: 'banana', items: this.round.bananas.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), delivery: this.round.delivery, delivered: this.round.delivered, prankItems, mega }
-    if (this.round.type === 'pizza') return { type: 'pizza', items: this.round.ingredients.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), station: this.round.station, delivered: this.round.delivered, total: this.round.total, prankItems, mega }
-    if (this.round.type === 'crown') return { type: 'crown', crown: this.round.crown, prankItems, mega }
-    if (this.round.type === 'balloon') return { type: 'balloon', items: this.round.balloons.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), tower: this.round.tower, delivered: this.round.delivered, prankItems, mega }
-    return { type: 'platform', platforms: this.platforms, targetColor: this.round.targetColor, prankItems, mega }
+    const tails = (this.round.tails || []).map(id => ({ id, color: this.players.get(id)?.color || '#ff5d8f' }))
+    if (this.round.type === 'banana') return { type: 'banana', items: this.round.bananas.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), delivery: this.round.delivery, delivered: this.round.delivered, prankItems, mega, tails }
+    if (this.round.type === 'pizza') return { type: 'pizza', items: this.round.ingredients.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), station: this.round.station, delivered: this.round.delivered, total: this.round.total, prankItems, mega, tails }
+    if (this.round.type === 'crown') return { type: 'crown', crown: this.round.crown, prankItems, mega, tails }
+    if (this.round.type === 'balloon') return { type: 'balloon', items: this.round.balloons.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), tower: this.round.tower, delivered: this.round.delivered, prankItems, mega, tails }
+    if (this.round.type === 'bomb') {
+      const bomb = this.round.bomb
+      const holder = this.players.get(bomb.holder)
+      return {
+        type: 'bomb',
+        bomb: { holder: bomb.holder, holderName: holder?.name || '', x: Number(bomb.x.toFixed(2)), z: Number(bomb.z.toFixed(2)), fuse: Math.max(0, Math.round((bomb.fuseEndsAt - Date.now()) / 100) / 10), passes: bomb.passes, booms: bomb.booms },
+        prankItems, mega, tails,
+      }
+    }
+    if (this.round.type === 'sweeper') {
+      const sweeper = this.round.sweeper
+      return {
+        type: 'sweeper',
+        sweeper: { angle: Number(sweeper.angle.toFixed(3)), speed: Number(sweeper.speed.toFixed(2)), direction: sweeper.direction, radius: sweeper.radius, warn: Math.max(0, sweeper.warnUntil - Date.now()), reverseIn: Math.max(0, sweeper.reverseAt - Date.now()), hits: sweeper.hits },
+        prankItems, mega, tails,
+      }
+    }
+    if (this.round.type === 'tail') return { type: 'tail', tails, stolen: this.round.tailStolen, prankItems, mega }
+    return { type: 'platform', platforms: this.platforms, targetColor: this.round.targetColor, prankItems, mega, tails }
   }
 }
 

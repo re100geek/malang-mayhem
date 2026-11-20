@@ -33,7 +33,7 @@ ui.innerHTML = `
   <section class="screen boot-screen is-active" data-screen="boot"><div class="loader-mark">M</div><h1>MALANG MAYHEM</h1><p>말랑말랑 대환장 파티</p><div class="loading-line"><i></i></div><small>젤리 월드 준비 중...</small></section>
   <section class="screen title-screen" data-screen="title"><div class="title-copy"><div class="eyebrow">MALANG MAYHEM / PARTY PROTOCOL 01</div><h1>MALANG<br><em>MAYHEM</em></h1><p>친구들이랑 말랑하게 부딪히고, 웃기게 우승하세요.</p><div class="title-actions"><button class="primary" data-action="create">방 만들기 <span>→</span></button><button data-action="single">혼자 플레이 <span>1인 모드</span></button><button data-action="join">방 코드로 참가</button></div><div class="single-options"><label for="bot-difficulty"><span>봇 난이도</span><select id="bot-difficulty"><option value="easy">쉽게 · 봇 1명</option><option value="normal" selected>보통 · 봇 2명</option><option value="hard">어렵게 · 봇 3명</option></select></label></div><div class="join-row"><input id="join-code" maxlength="6" placeholder="6자리 방 코드" autocomplete="off"><button data-action="join-code">입장</button></div><div class="profile-card"><label>닉네임 <input id="nickname" maxlength="14" value="${saved.name || '말랑이'}"></label><div><span>내 색상</span><div class="color-picks">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div></div></div><div class="title-badge"><b>5</b><span>ROUNDS</span><small>1–8 PLAYERS</small></div><div class="title-blob blob-a"></div><div class="title-blob blob-b"></div></section>
   <section class="screen lobby-screen" data-screen="lobby"><div class="lobby-head"><div class="room-meta"><span class="eyebrow">ROOM CODE</span><div class="room-line"><button class="room-code" data-action="copy">------ <small>복사</small></button><span class="room-live" id="room-live">● LIVE</span></div></div><div class="lobby-rounds"><b>5 ROUNDS</b><span>개인전 3 · 협동전 2</span></div></div><div class="lobby-body"><div><h2>대기실 <span id="lobby-count">0/8</span></h2><p class="muted">친구에게 방 코드를 공유하고 모두 준비하면 출발!</p><div class="lobby-rename"><label for="lobby-nickname">닉네임</label><input id="lobby-nickname" maxlength="14" autocomplete="off" placeholder="닉네임"><button data-action="rename">변경</button><div class="lobby-colors">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div><div class="player-list" id="player-list"></div></div><aside class="rules-card"><span class="eyebrow">NEXT UP</span><h3>미끄덩<br>바나나 배달</h3><p>바나나를 들고 배달존까지 미끄러져 가세요. 제일 많이 배달한 사람이 웃음 포인트를 가져갑니다.</p><div class="mini-stats"><span>75 SEC</span><span>SOLO</span><span>WASD + E</span></div><button class="primary wide" data-action="ready" id="ready-btn">준비 완료</button><button class="text-btn" data-action="start" id="start-btn">방장으로 게임 시작</button></aside><div class="invite-panel"><div><span class="eyebrow">INVITE FRIENDS</span><h3>친구를 바로 초대</h3><p>링크를 누르거나 QR을 스캔하면 방 코드가 자동으로 채워져요.</p><input id="invite-link" readonly><div class="invite-actions"><button class="primary" data-action="share">공유하기</button><button data-action="copy-invite">링크 복사</button><button data-action="toggle-qr">QR 보기</button></div></div><canvas id="qr-code" width="156" height="156" aria-label="방 초대 QR 코드"></canvas></div></div><button class="leave-link" data-action="leave">← 타이틀로 돌아가기</button></section>
-  <section class="screen hud-screen" data-screen="hud"><div class="hud-top"><div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker"><button data-prank="headbutt">Q 박치기</button><button data-prank="bonk">1 꿀밤</button><button data-prank="tackle">2 태클</button><button data-prank="hug">3 포옹</button></div></div><div class="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round" id="jump-btn">점프</button><button class="action-round pink" id="interact-btn">E 잡기</button><button class="action-round prank" id="prank-btn">장난</button></div></section>
+  <section class="screen hud-screen" data-screen="hud"><div class="hud-top"><div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker" id="prank-picker"><button data-prank="headbutt"><span class="pk-key">Q</span><span class="pk-name">박치기</span><i class="pk-cd"></i></button><button data-prank="bonk"><span class="pk-key">1</span><span class="pk-name">꿀밤</span><i class="pk-cd"></i></button><button data-prank="tackle"><span class="pk-key">2</span><span class="pk-name">태클</span><i class="pk-cd"></i></button><button data-prank="hug"><span class="pk-key">3</span><span class="pk-name">포옹</span><i class="pk-cd"></i></button></div></div><div class="mobile-controls" id="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round jump" id="jump-btn" type="button" data-label="점프"><span class="ar-icon">⬆</span><span class="ar-label">점프</span><i class="cd-veil"></i></button><button class="action-round pink grab" id="interact-btn" type="button" data-label="잡기"><span class="ar-icon">✋</span><span class="ar-label">잡기</span><i class="cd-veil"></i></button><button class="action-round prank" id="prank-btn" type="button"><span class="ar-icon">😈</span><span class="ar-label" id="prank-btn-label" data-prank-label="박치기">박치기</span><i class="cd-veil"></i></button></div></section>
   <section class="screen result-screen" data-screen="result"><div class="result-card"><span class="eyebrow" id="result-kicker">ROUND COMPLETE</span><h2 id="result-title">라운드 결과</h2><p id="result-summary">말랑한 결과가 도착했어요.</p><div id="recap-list" class="recap-list"></div><div id="result-list" class="result-list"></div><button class="primary" data-action="result-close">다음 라운드로 →</button></div></section>
   <section class="screen final-screen" data-screen="final"><div class="confetti confetti-a"></div><div class="final-card"><span class="eyebrow">MALANG CHAMPIONSHIP</span><h2>최종 시상식</h2><p>오늘의 젤리 챔피언은...</p><div id="final-winner" class="winner-name">공동 우승!</div><div id="best-prankster" class="prank-award">최고의 장난꾸러기 — 아직 미정</div><div class="award-board" id="award-board"></div><div class="highlight-list" id="highlight-list"></div><div id="final-list" class="final-list"></div><button class="primary" data-action="rematch">다시 말랑하게!</button><button class="text-btn" data-action="leave">타이틀로</button></div></section>
   <div class="toast" id="toast"></div>
@@ -124,7 +124,8 @@ function renderState() {
     const current = obj.delivered ?? 0
     const total = obj.total ?? (state.round.mode === 'coop' ? (state.roundIndex === 3 ? 16 : 12) : 18)
     document.getElementById('progress-bar')!.style.width = `${Math.min(100, (current / total) * 100)}%`
-    document.getElementById('progress-text')!.textContent = state.roundIndex === 2 || state.roundIndex === 4 ? 'SURVIVE!' : `${current} / ${total}`
+    const survivalRound = ['crown', 'platform', 'bomb', 'sweeper', 'tail'].includes((state.round as any).type)
+    document.getElementById('progress-text')!.textContent = survivalRound ? 'SURVIVE!' : `${current} / ${total}`
   }
   document.getElementById('score-stack')!.innerHTML = state.players.filter(p => p.connected).sort((a, b) => b.score - a.score).map(p => `<div class="score-row ${p.id === me?.id ? 'mine' : ''}"><i style="--player:${p.color}"></i><span>${escapeHtml(p.name)}</span><b>${p.score}</b></div>`).join('')
   const mine = state.players.find(p => p.id === me?.id)
@@ -169,34 +170,12 @@ function renderState() {
     statuses.reverse > 0 ? `<span class="status-chip reverse">반전 ${Math.ceil(statuses.reverse / 1000)}s</span>` : '',
   ].join('')
   document.body.classList.toggle('inked', statuses.ink > 0)
-  const prankButton = document.getElementById('prank-btn') as HTMLButtonElement | null
-  const cooldowns = (mine?.cooldowns || {}) as Record<string, number>
-  document.querySelectorAll<HTMLButtonElement>('[data-prank]').forEach(button => {
-    const type = button.dataset.prank || 'headbutt'
-    const remain = cooldowns[type] || 0
-    button.classList.toggle('is-cooling', remain > 0)
-    button.dataset.cooldown = remain > 0 ? `${(remain / 1000).toFixed(1)}s` : ''
-    button.textContent = remain > 0 ? `${PRANK_LABELS[type]} ${(remain / 1000).toFixed(1)}s` : PRANK_LABELS[type]
-  })
-  if (prankButton) {
-    const remain = cooldowns[input.prankType] || 0
-    prankButton.disabled = remain > 0
-    prankButton.classList.toggle('is-cooling', remain > 0)
-    const label = PRANK_NAMES[input.prankType] || '장난'
-    prankButton.innerHTML = remain > 0 ? `${label}<span class="cooldown-badge">${(remain / 1000).toFixed(1)}s</span>` : label
-  }
-  const interactButton = document.getElementById('interact-btn')
-  if (interactButton) {
-    const remain = cooldowns.grab || 0
-    interactButton.classList.toggle('is-cooling', remain > 0)
-    interactButton.innerHTML = remain > 0 ? `E 잡기<span class="cooldown-badge">${(remain / 1000).toFixed(1)}s</span>` : 'E 잡기'
-  }
-  const jumpButton = document.getElementById('jump-btn')
-  if (jumpButton) {
-    const remain = cooldowns.jump || 0
-    jumpButton.classList.toggle('is-cooling', remain > 0)
-    jumpButton.innerHTML = remain > 0 ? `점프<span class="cooldown-badge">${(remain / 1000).toFixed(1)}s</span>` : '점프'
-  }
+  // 서버가 준 쿨타임 표를 기준으로, 클라이언트에서도 같은 시간만큼 즉시 잠근다.
+  cooldownTable = { ...FALLBACK_CD_MS, ...((state as any).cooldownMs || {}) }
+  serverCd = { ...((mine?.cooldowns || {}) as Record<string, number>) }
+  serverCdAt = performance.now()
+  paintCooldowns()
+  renderObjective(state, mine)
 }
 function renderResult(next: PartyState) {
   const result = next.result
@@ -222,15 +201,132 @@ function renderFinal(next: PartyState) {
 }
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c)) }
 const PRANK_NAMES: Record<string, string> = { headbutt: '박치기', bonk: '꿀밤', tackle: '태클', hug: '포옹' }
-const PRANK_LABELS: Record<string, string> = { headbutt: 'Q 박치기', bonk: '1 꿀밤', tackle: '2 태클', hug: '3 포옹' }
-/** 장난 선택 + (trigger=true면) 즉시 발동. 1/2/3 단축키와 픽커/모바일 버튼이 같은 경로를 쓴다. */
+const PRANK_ICONS: Record<string, string> = { headbutt: '😈', bonk: '🔨', tackle: '🦵', hug: '🫂' }
+// 서버 ACTION_COOLDOWN_MS와 같은 기본값. state.cooldownMs가 오면 그 값이 우선한다.
+const FALLBACK_CD_MS: Record<string, number> = { headbutt: 1500, bonk: 2000, tackle: 2800, hug: 2500, grab: 800, jump: 180 }
+let cooldownTable: Record<string, number> = { ...FALLBACK_CD_MS }
+let serverCd: Record<string, number> = {}
+let serverCdAt = 0
+const localCds: Record<string, number> = {}
+let sentPrankCount = 0
+let lastCast: Record<string, unknown> = {}
+// 실제로 화면에 그려진 마지막 쿨타임 초(검수·테스트용 기록).
+const shownCd: Record<string, string> = {}
+function cooldownMs(type: string) { return cooldownTable[type] || FALLBACK_CD_MS[type] || 0 }
+/** 남은 쿨타임(ms) = max(내가 즉시 잠근 시간, 서버 스냅샷의 남은 시간). */
+function remainingMs(type: string) {
+  const local = Math.max(0, (localCds[type] || 0) - performance.now())
+  const fromServer = Math.max(0, (serverCd[type] || 0) - (performance.now() - serverCdAt))
+  return Math.max(local, fromServer)
+}
+function lockLocal(type: string, extra = 0) { localCds[type] = Math.max(localCds[type] || 0, performance.now() + cooldownMs(type) + extra) }
+function flashBlocked(type: string) {
+  const el = type === 'grab' ? document.getElementById('interact-btn') : type === 'jump' ? document.getElementById('jump-btn') : document.getElementById('prank-btn')
+  if (!el) return
+  el.classList.remove('is-blocked')
+  void el.offsetWidth
+  el.classList.add('is-blocked')
+  setTimeout(() => el.classList.remove('is-blocked'), 260)
+}
+/** 장난 선택 + (trigger=true면) 즉시 발동. PC 1/2/3·픽커·모바일 버튼이 모두 이 경로를 쓴다. */
 function selectPrank(type: string, trigger = false) {
   input.prankType = type
   document.querySelectorAll<HTMLElement>('[data-prank]').forEach(el => el.classList.toggle('is-selected', el.dataset.prank === type))
-  if (!trigger) return
+  const prankButton = document.getElementById('prank-btn')
+  const label = document.getElementById('prank-btn-label')
+  const skillName = PRANK_NAMES[type] || '장난'
+  if (prankButton) prankButton.dataset.label = skillName
+  if (label) label.textContent = skillName
+  const icon = document.querySelector('#prank-btn .ar-icon')
+  if (icon) icon.textContent = PRANK_ICONS[type] || '😈'
+  if (!trigger) { paintCooldowns(); return }
+  const remain = remainingMs(type)
+  if (remain > 0) { flashBlocked(type); paintCooldowns(); return }
+  if (!socket?.connected || !me) { toast('아직 서버에 연결되지 않았어요.'); return }
+  lockLocal(type, 60)
+  lastCast = { kind: 'prank', type, before: remain, lockedUntil: localCds[type], now: performance.now(), table: cooldownTable[type] }
   input.prank = true
+  sentPrankCount++
   game.hintAction('Bonk')
   flushInput()
+  paintCooldowns()
+}
+/** 점프·잡기처럼 실패해도 손해가 없는 동작은 같은 방식으로 즉시 잠그고 보낸다. */
+function pressAction(kind: 'jump' | 'interact') {
+  const type = kind === 'jump' ? 'jump' : 'grab'
+  if (remainingMs(type) > 0) { flashBlocked(type); paintCooldowns(); return }
+  if (!socket?.connected || !me) return
+  lockLocal(type, 40)
+  lastCast = { kind, type, lockedUntil: localCds[type], now: performance.now(), table: cooldownTable[type] }
+  if (kind === 'jump') input.jump = true
+  else input.interact = true
+  flushInput()
+  paintCooldowns()
+}
+/** 픽커·모바일 버튼의 쿨타임 게이지와 남은 초를 한 곳에서 그린다. */
+function paintCooldowns() {
+  document.querySelectorAll<HTMLButtonElement>('[data-prank]').forEach(button => {
+    const type = button.dataset.prank || 'headbutt'
+    const total = cooldownMs(type) || 1
+    const remain = remainingMs(type)
+    const cooling = remain > 0
+    button.classList.toggle('is-cooling', cooling)
+    button.classList.toggle('is-selected', input.prankType === type)
+    button.style.setProperty('--cd', String(Math.min(1, remain / total)))
+    button.setAttribute('aria-disabled', cooling ? 'true' : 'false')
+    const cd = button.querySelector<HTMLElement>('.pk-cd')
+    if (cd) { cd.textContent = cooling ? `${(remain / 1000).toFixed(1)}` : ''; if (cooling) shownCd[type] = cd.textContent }
+  })
+  // 원형 버튼은 쿨타임 동안 이름 대신 남은 초를 크게 보여 준다(원형 veil이 남은 비율을 채운다).
+  const paintAction = (id: string, type: string, fallbackLabel: string) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    const remain = remainingMs(type)
+    el.classList.toggle('is-cooling', remain > 0)
+    el.setAttribute('aria-disabled', remain > 0 ? 'true' : 'false')
+    el.style.setProperty('--cd', String(Math.min(1, remain / (cooldownMs(type) || 1))))
+    const label = el.querySelector<HTMLElement>('.ar-label')
+    if (!label) return
+    const text = remain > 0 ? `${(remain / 1000).toFixed(1)}s` : (el.dataset.label || fallbackLabel)
+    label.textContent = text
+    if (remain > 0) shownCd[type] = text
+  }
+  paintAction('prank-btn', input.prankType, PRANK_NAMES[input.prankType] || '장난')
+  paintAction('interact-btn', 'grab', '잡기')
+  paintAction('jump-btn', 'jump', '점프')
+}
+/** 미니게임별 목표·진행 표시(폭탄 남은 초, 스위퍼 생존, 꼬리 개수). */
+function renderObjective(state: PartyState, mine: any) {
+  const objects = (state.objects || {}) as any
+  const bar = document.getElementById('progress-bar')
+  const text = document.getElementById('progress-text')
+  const objective = document.getElementById('objective-text')
+  if (!bar || !text || !objective) return
+  if (objects.type === 'bomb' && objects.bomb) {
+    const fuse = Number(objects.bomb.fuse || 0)
+    const holder = objects.bomb.holderName || '없음'
+    text.textContent = fuse > 0 ? `${fuse.toFixed(1)}s` : '폭발!'
+    bar.style.width = `${Math.max(0, Math.min(100, (fuse / 12) * 100))}%`
+    objective.textContent = objects.bomb.holder === mine?.id ? '내가 폭탄! 다른 사람에게 넘겨라!' : `${holder}님이 폭탄을 들고 있어요`
+    return
+  }
+  if (objects.type === 'sweeper' && objects.sweeper) {
+    const sweeper = objects.sweeper
+    const alive = state.players.filter((p: any) => !p.respawning).length
+    const left = Math.max(0, Math.ceil(state.round?.timeLeft || 0))
+    text.textContent = `생존 ${alive}명 · ${left}s`
+    bar.style.width = `${Math.max(0, Math.min(100, ((state.round?.duration || 1) - left) / (state.round?.duration || 1) * 100))}%`
+    objective.textContent = sweeper.warn > 0 ? '막대 방향 반전 예고! 타이밍을 봐!' : '회전 막대를 점프로 넘어!'
+    return
+  }
+  if (objects.type === 'tail') {
+    const tails = (objects.tails || []) as any[]
+    const mineTail = tails.some(tail => tail.id === mine?.id)
+    text.textContent = `꼬리 ${tails.length}개 · 강탈 ${objects.stolen || 0}회`
+    bar.style.width = `${Math.min(100, tails.length / Math.max(1, state.players.length) * 100)}%`
+    objective.textContent = mineTail ? '꼬리를 지켜라! 쫓아오는 사람을 뿌리쳐!' : '꼬리를 가진 사람을 쫓아가 뺏어라!'
+    return
+  }
 }
 function rename() {
   const field = document.getElementById('lobby-nickname') as HTMLInputElement | null
@@ -244,7 +340,7 @@ function rename() {
   persist()
   toast(`닉네임을 ${value}(으)로 바꿨어요!`)
 }
-const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop' }
+const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop', bomb_boom: 'boom', bomb_pass: 'bomb', sweeper_hit: 'sweeper', sweeper_assist: 'sweeper', sweeper_warn: 'sweeper', tail_steal: 'tail', tail_bonus: 'tail' }
 function effectFor(event: any) { return event.itemType || EVENT_EFFECTS[event.type] || 'reverse' }
 function leave() { socket?.disconnect(); socket = null; state = null; me = null; show('title'); toast('다음 파티를 기다리고 있어요.') }
 function addPrankLog(message: string, type: string) { if (!['prank', 'prank_item', 'crown', 'mega', 'mega_grab', 'tether', 'fall', 'respawn'].includes(type)) return; const log = document.getElementById('prank-log'); if (!log) return; const line = document.createElement('div'); line.textContent = message; log.prepend(line); while (log.children.length > 3) log.lastElementChild?.remove() }
@@ -277,7 +373,6 @@ ui.addEventListener('click', e => {
   if (action === 'share') void shareInvite()
   if (action === 'toggle-qr') document.querySelector('.invite-panel')?.classList.toggle('qr-open')
 })
-ui.addEventListener('click', e => { const target = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-prank]'); if (!target) return; selectPrank(target.dataset.prank || 'headbutt', true) })
 const initialColor = Number(saved.colorIndex || 0)
 document.querySelectorAll<HTMLElement>('.color-pick')[initialColor]?.classList.add('is-selected')
 const codeInput = document.getElementById('join-code') as HTMLInputElement
@@ -290,8 +385,8 @@ if (roomFromUrl.length === 6) { codeInput.value = roomFromUrl; document.getEleme
 addEventListener('keydown', e => {
   if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return
   keys.add(e.code)
-  if (e.code === 'Space') { input.jump = true; e.preventDefault(); flushInput() }
-  if (e.code === 'KeyE') { input.interact = true; e.preventDefault(); flushInput() }
+  if (e.code === 'Space') { e.preventDefault(); pressAction('jump') }
+  if (e.code === 'KeyE') { e.preventDefault(); pressAction('interact') }
   if (e.code === 'KeyQ') { selectPrank('headbutt', true); e.preventDefault() }
   if (e.code === 'Digit1') { selectPrank('bonk', true); e.preventDefault() }
   if (e.code === 'Digit2') { selectPrank('tackle', true); e.preventDefault() }
@@ -299,23 +394,139 @@ addEventListener('keydown', e => {
 })
 addEventListener('keyup', e => keys.delete(e.code))
 function updateKeyboard() { const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')); const z = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')); if (x || z) { const len = Math.hypot(x, z) || 1; input.x = x / len; input.z = z / len } else if (!document.getElementById('stick')?.classList.contains('active')) { input.x = 0; input.z = 0 } }
+/**
+ * 모바일 입력.
+ * - 버튼: pointerdown / touchstart / click 중 먼저 온 하나만 처리한다(중복 발동 방지).
+ *   터치 기기에서 pointer 이벤트가 막히는 인앱 브라우저를 위해 touchstart·click 폴백을 둔다.
+ * - 스틱: 포인터 캡처 + pointercancel/lostpointercapture 해제. 터치 폴백도 같은 경로를 쓴다.
+ * - 모든 버튼은 쿨타임 중이면 즉시 시각 피드백만 하고 서버로 보내지 않는다.
+ */
+function bindPress(el: HTMLElement | null, handler: (event: Event) => void) {
+  if (!el) return
+  let lastHandled = -1000
+  const run = (event: Event) => {
+    const now = performance.now()
+    if (now - lastHandled < 450) return
+    lastHandled = now
+    if (event.cancelable) event.preventDefault()
+    handler(event)
+  }
+  el.addEventListener('pointerdown', event => { if ((event as PointerEvent).pointerType === 'mouse' && (event as PointerEvent).button !== 0) return; run(event) }, { passive: false })
+  el.addEventListener('touchstart', event => run(event), { passive: false })
+  el.addEventListener('click', event => run(event))
+}
 function setupTouch() {
-  const stick = document.getElementById('stick')!, knob = stick.querySelector('i') as HTMLElement
-  let pointer = 0
-  const move = (clientX: number, clientY: number) => { const r = stick.getBoundingClientRect(); const dx = clientX - (r.left + r.width / 2), dy = clientY - (r.top + r.height / 2); const d = Math.min(45, Math.hypot(dx, dy)); const a = Math.atan2(dy, dx); const x = Math.cos(a) * d, y = Math.sin(a) * d; knob.style.transform = `translate(${x}px,${y}px)`; input.x = x / 45; input.z = y / 45 }
-  stick.addEventListener('pointerdown', e => { pointer = e.pointerId; stick.classList.add('active'); stick.setPointerCapture(pointer); move(e.clientX, e.clientY) })
-  stick.addEventListener('pointermove', e => { if (e.pointerId === pointer) move(e.clientX, e.clientY) })
-  stick.addEventListener('pointerup', () => { pointer = 0; stick.classList.remove('active'); knob.style.transform = ''; input.x = input.z = 0 })
-  document.getElementById('jump-btn')!.addEventListener('pointerdown', () => { input.jump = true; flushInput() })
-  document.getElementById('interact-btn')!.addEventListener('pointerdown', () => { input.interact = true; flushInput() })
-  document.getElementById('prank-btn')!.addEventListener('pointerdown', () => selectPrank(input.prankType, true))
+  const stick = document.getElementById('stick')!
+  const knob = stick.querySelector('i') as HTMLElement
+  let pointerId: number | null = null
+  let lastPointerAt = -1000
+  const move = (clientX: number, clientY: number) => {
+    const r = stick.getBoundingClientRect()
+    const dx = clientX - (r.left + r.width / 2), dy = clientY - (r.top + r.height / 2)
+    const d = Math.min(45, Math.hypot(dx, dy)), a = Math.atan2(dy, dx)
+    const x = Math.cos(a) * d, y = Math.sin(a) * d
+    knob.style.transform = `translate(${x}px,${y}px)`
+    input.x = x / 45; input.z = y / 45
+  }
+  const release = () => {
+    pointerId = null
+    stick.classList.remove('active')
+    knob.style.transform = ''
+    input.x = 0; input.z = 0
+  }
+  stick.addEventListener('pointerdown', event => {
+    event.preventDefault()
+    lastPointerAt = performance.now()
+    if (pointerId !== null) return
+    pointerId = event.pointerId
+    stick.classList.add('active')
+    try { stick.setPointerCapture(event.pointerId) } catch { /* 캡처 미지원 브라우저 */ }
+    move(event.clientX, event.clientY)
+  }, { passive: false })
+  stick.addEventListener('pointermove', event => {
+    if (event.pointerId !== pointerId) return
+    event.preventDefault()
+    move(event.clientX, event.clientY)
+  }, { passive: false })
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) stick.addEventListener(type, () => release())
+  // 포인터 이벤트가 없는 구형·인앱 브라우저용 터치 폴백
+  stick.addEventListener('touchstart', event => {
+    if (performance.now() - lastPointerAt < 600) return
+    const touch = event.changedTouches[0]
+    if (!touch) return
+    event.preventDefault()
+    stick.classList.add('active')
+    move(touch.clientX, touch.clientY)
+  }, { passive: false })
+  stick.addEventListener('touchmove', event => {
+    if (performance.now() - lastPointerAt < 600) return
+    const touch = event.changedTouches[0]
+    if (!touch) return
+    event.preventDefault()
+    move(touch.clientX, touch.clientY)
+  }, { passive: false })
+  for (const type of ['touchend', 'touchcancel'] as const) stick.addEventListener(type, () => { if (performance.now() - lastPointerAt >= 600) release() })
+
+  bindPress(document.getElementById('jump-btn'), () => pressAction('jump'))
+  bindPress(document.getElementById('interact-btn'), () => pressAction('interact'))
+  bindPress(document.getElementById('prank-btn'), () => selectPrank(input.prankType, true))
+  document.querySelectorAll<HTMLElement>('[data-prank]').forEach(button => bindPress(button, () => selectPrank(button.dataset.prank || 'headbutt', true)))
 }
 setupTouch()
 
-void game.load().then(() => { document.querySelector('.loading-line i')?.setAttribute('style', 'transform:scaleX(1)'); setTimeout(() => show('title'), 450) }).catch(() => show('title'))
+const PROPS_MODE = new URLSearchParams(location.search).has('props')
+void game.load().then(() => {
+  document.querySelector('.loading-line i')?.setAttribute('style', 'transform:scaleX(1)')
+  if (PROPS_MODE) { mountPropsGallery(); return }
+  setTimeout(() => show('title'), 450)
+}).catch(() => show('title'))
+
+/** `?props` 검수용: 모든 아이템 소품을 한 화면에 늘어놓고 이름표를 붙인다. */
+function mountPropsGallery() {
+  document.body.classList.add('props-gallery')
+  const overlay = document.createElement('div')
+  overlay.className = 'props-labels'
+  document.body.appendChild(overlay)
+  const labels = game.showcase()
+  overlay.innerHTML = labels.map(entry => `<span>${entry.label}</span>`).join('')
+  const tick = () => {
+    const next = game.showcaseLabels()
+    next.forEach((entry, index) => {
+      const span = overlay.children[index] as HTMLElement | undefined
+      if (span) span.style.transform = `translate(${entry.x}px, ${entry.y}px) translate(-50%, -50%)`
+    })
+    requestAnimationFrame(tick)
+  }
+  tick()
+}
 // `?debug` 검수용: 렌더 프레임률과 무관하게 입력을 직접 보내 캐릭터를 정확히 움직인다.
 let debugMove: { x: number; z: number } | null = null
 if (new URLSearchParams(location.search).has('debug')) {
+  (window as unknown as Record<string, unknown>).__mmClient = {
+    snapshot: () => ({
+      phase: state?.phase,
+      roundIndex: state?.roundIndex,
+      round: state?.round,
+      plan: (state as any)?.plan,
+      input: { ...input },
+      remaining: Object.fromEntries(['headbutt', 'bonk', 'tackle', 'hug', 'grab', 'jump'].map(type => [type, Math.round(remainingMs(type))])),
+      sentPranks: sentPrankCount,
+      skill: input.prankType,
+      prankLabel: document.getElementById('prank-btn')?.dataset.label || '',
+      prankTime: document.querySelector('#prank-btn .ar-label')?.textContent,
+      prankCooling: document.getElementById('prank-btn')?.classList.contains('is-cooling'),
+      picker: [...document.querySelectorAll<HTMLElement>('[data-prank]')].map(button => ({ type: button.dataset.prank, cooling: button.classList.contains('is-cooling'), cd: button.querySelector('.pk-cd')?.textContent, selected: button.classList.contains('is-selected') })),
+      shownCd: { ...shownCd },
+      jumpCooling: document.getElementById('jump-btn')?.classList.contains('is-cooling'),
+      grabCooling: document.getElementById('interact-btn')?.classList.contains('is-cooling'),
+      cds: { local: { ...localCds }, server: { ...serverCd }, at: Math.round(serverCdAt), table: { ...cooldownTable }, lastCast, now: Math.round(performance.now()) },
+      objects: (state?.objects as any)?.type,
+      objective: document.getElementById('objective-text')?.textContent,
+      progress: document.getElementById('progress-text')?.textContent,
+    }),
+    cast: (type: string) => { selectPrank(type, true); return Math.round(remainingMs(type)) },
+    lock: (type: string, ms: number) => { localCds[type] = performance.now() + Math.max(0, ms); paintCooldowns(); return Math.round(remainingMs(type)) },
+  };
   (window as unknown as Record<string, unknown>).__mmInput = (next: Partial<typeof input>) => {
     if (next.x !== undefined || next.z !== undefined) debugMove = { x: next.x ?? 0, z: next.z ?? 0 }
     Object.assign(input, next)
@@ -323,5 +534,16 @@ if (new URLSearchParams(location.search).has('debug')) {
     return { ...input }
   }
 }
-function frame(now: number) { const dt = Math.min(.05, (now - lastFrame) / 1000); lastFrame = now; updateKeyboard(); if (debugMove) { input.x = debugMove.x; input.z = debugMove.z } game.setInput(input.x, input.z); sendInput(now); game.render(dt); requestAnimationFrame(frame) }
+let lastCooldownPaint = 0
+function frame(now: number) {
+  const dt = Math.min(.05, (now - lastFrame) / 1000); lastFrame = now
+  updateKeyboard()
+  if (debugMove) { input.x = debugMove.x; input.z = debugMove.z }
+  game.setInput(input.x, input.z)
+  sendInput(now)
+  // 스냅샷이 띄엄띄엄 와도 쿨타임 초가 끊기지 않게 프레임에서도 다시 그린다.
+  if (now - lastCooldownPaint > 110) { lastCooldownPaint = now; if (state?.phase === 'play' || state?.phase === 'countdown') paintCooldowns() }
+  game.render(dt)
+  requestAnimationFrame(frame)
+}
 requestAnimationFrame(frame)

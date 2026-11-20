@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { Character, CHARACTER_HEIGHT, type ClipName } from '../engine/character'
+import { createProp, createTail, ingredientProp, prankItemProp } from '../engine/props'
 
 export type Player = {
   id: string; seat: number; name: string; color: string; connected: boolean; host: boolean; ready: boolean
@@ -12,6 +12,9 @@ export type Player = {
 }
 export type TetherPair = { a: string; b: string; length: number; tension: number; rest: number; max: number }
 export type MegaObject = { id: string; kind: string; name: string; x: number; z: number; carriers: string[]; delivered: boolean; zone: { x: number; z: number }; wobbleUntil: number }
+export type BombObject = { holder: string; holderName: string; x: number; z: number; timer: number; fuse: number; passes: number }
+export type SweeperObject = { angle: number; speed: number; radius: number; warn: number; reverseIn: number; direction: number }
+export type TailObject = { id: string; color: string }
 export type PartyState = {
   code: string; hostId: string; phase: string; roundIndex: number; round: { title: string; short: string; mode: string; timeLeft: number; duration: number } | null
   players: Player[]; objects: any; platforms: any[]; targetColor: string; result: any; event?: any; pairs?: TetherPair[]
@@ -45,6 +48,7 @@ export class PartyGame {
   private readonly props = new Map<string, THREE.Object3D>()
   private readonly mats = new Map<string, THREE.Material>()
   private readonly bands = new Map<string, { mesh: THREE.Mesh; material: THREE.MeshStandardMaterial }>()
+  private readonly tails = new Map<string, THREE.Object3D>()
   private readonly effects: Effect[] = []
   private assetScene?: THREE.Group
   private rigSource?: THREE.Object3D
@@ -58,6 +62,8 @@ export class PartyGame {
   private orbit = 0
   private fallbackGround?: THREE.Mesh
   private debug = false
+  private showcaseItems: { kind: string; label: string; position: THREE.Vector3 }[] = []
+  private propsMode = false
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
@@ -101,6 +107,39 @@ export class PartyGame {
     } catch (error) {
       console.warn('GLB load failed; procedural fallback remains active.', error)
     }
+  }
+
+  /**
+   * 소품 구별 검수용 갤러리(`?props`). 모든 아이템을 한 화면에 늘어놓고 이름표 좌표를 돌려준다.
+   */
+  showcase(): { label: string; x: number; y: number }[] {
+    this.propsMode = true
+    this.clearProps()
+    this.showcaseItems = []
+    const entries: [string, string][] = [
+      ['banana', '바나나'], ['pizza_dough', '피자 도우'], ['pizza_sauce', '소스 병'], ['pizza_cheese', '치즈 웨지'],
+      ['pizza_pepperoni', '페퍼로니'], ['crown', '왕관'], ['balloon', '풍선'], ['banana_peel', '바나나 껍질'],
+      ['jelly_pool', '젤리 웅덩이'], ['mallet', '뿅망치'], ['reverse_arrow', '방향 반전'], ['bomb', '시한폭탄'],
+      ['sweeper_bar', '스위퍼 막대'], ['tail', '꼬리'], ['golden_pizza', '황금 피자'], ['golden_trophy', '황금 트로피'],
+    ]
+    entries.forEach(([kind, label], index) => {
+      const column = index % 4
+      const row = Math.floor(index / 4)
+      const x = -5.4 + column * 3.6
+      const z = -5.0 + row * 3.4
+      const object = this.prop(kind, `showcase:${kind}`)
+      object.position.set(x, kind === 'sweeper_bar' ? 0 : 0.05, z)
+      if (kind === 'sweeper_bar') object.scale.setScalar(0.28)
+      this.showcaseItems.push({ kind, label, position: new THREE.Vector3(x, kind === 'sweeper_bar' ? 0.6 : 1.5, z) })
+    })
+    return this.showcaseLabels()
+  }
+
+  showcaseLabels(): { label: string; x: number; y: number }[] {
+    return this.showcaseItems.map(item => {
+      const point = item.position.clone().project(this.camera)
+      return { label: item.label, x: Math.round((point.x * 0.5 + 0.5) * innerWidth), y: Math.round((-point.y * 0.5 + 0.5) * innerHeight) }
+    })
   }
 
   private createWorld(): void {
@@ -225,15 +264,16 @@ export class PartyGame {
   private clearProps(): void {
     for (const object of this.props.values()) object.removeFromParent()
     this.props.clear()
+    for (const object of this.tails.values()) object.removeFromParent()
+    this.tails.clear()
   }
 
-  private source(name: string): THREE.Object3D | undefined { return this.assetScene?.getObjectByName(name) }
-
-  private prop(name: string, key: string, scale = 0.7): THREE.Object3D {
-    const source = this.source(name)
-    const object = source ? SkeletonUtils.clone(source) : new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 8), this.material('fallback', '#ffd35c'))
-    object.scale.setScalar(scale)
+  /** 아이템/함정 소품은 절차적 메시(engine/props)로 만들고, 키별로 재사용한다. */
+  private prop(kind: string, key: string, scale = 1): THREE.Object3D {
+    const object = createProp(kind)
+    object.scale.multiplyScalar(scale)
     object.traverse((child: THREE.Object3D) => { const mesh = child as THREE.Mesh; if (mesh.isMesh) mesh.castShadow = true })
+    object.userData.kind = kind
     object.userData.key = key
     this.root.add(object)
     this.props.set(key, object)
@@ -241,8 +281,8 @@ export class PartyGame {
   }
 
   showPrankEffect(type: string, x = 0, z = 0): void {
-    const color = type === 'jelly_pool' ? '#b76cff' : type === 'banana_peel' ? '#ffd35c' : type === 'reverse' ? '#57c7ff' : type === 'bonk' ? '#ffd35c' : type === 'tackle' ? '#ff7b68' : type === 'hug' || type === 'grab' ? '#ff9dd0' : type === 'shatter' ? '#fff2c4' : type === 'mega' ? '#ffcf4b' : type === 'mega_grab' || type === 'tether' ? '#ff87bd' : type === 'mega_drop' ? '#ff9d5c' : type === 'respawn' ? '#62e8aa' : type === 'fall' ? '#ff5d6c' : '#ff5d8f'
-    const radius = type === 'shockwave' || type === 'tackle' ? 1.8 : type === 'hug' ? 1.1 : type === 'mega' ? 2.3 : type === 'tether' ? 1.2 : 0.65
+    const color = type === 'jelly_pool' ? '#b76cff' : type === 'banana_peel' ? '#ffd35c' : type === 'reverse' ? '#57c7ff' : type === 'bonk' ? '#ffd35c' : type === 'tackle' ? '#ff7b68' : type === 'hug' || type === 'grab' ? '#ff9dd0' : type === 'shatter' ? '#fff2c4' : type === 'mega' ? '#ffcf4b' : type === 'mega_grab' || type === 'tether' ? '#ff87bd' : type === 'mega_drop' ? '#ff9d5c' : type === 'respawn' ? '#62e8aa' : type === 'fall' ? '#ff5d6c' : type === 'bomb' || type === 'boom' ? '#ff9d2e' : type === 'sweeper' ? '#ff5d6c' : type === 'tail' || type === 'steal' ? '#ff5d8f' : '#ff5d8f'
+    const radius = type === 'shockwave' || type === 'tackle' ? 1.8 : type === 'hug' ? 1.1 : type === 'mega' ? 2.3 : type === 'tether' ? 1.2 : type === 'boom' ? 2.8 : type === 'sweeper' ? 1.5 : 0.65
     const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.09, 10, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.92 }))
     ring.rotation.x = -Math.PI / 2
     ring.position.set(x, 0.06, z)
@@ -278,25 +318,28 @@ export class PartyGame {
   private syncWorld(state: PartyState): void {
     const objects = state.objects || {}
     const keep = new Set<string>()
-    const addItem = (item: any, name: string) => {
+    const addItem = (item: any, kind: string, y = 0.8) => {
       const key = `${objects.type}:${item.id}`
       keep.add(key)
-      const object = this.props.get(key) || this.prop(name, key, name === 'Balloon' ? 0.7 : 0.55)
-      let x = item.x
-      let z = item.z
-      let y = name === 'Balloon' ? 1.7 : 0.8
+      let object = this.props.get(key)
+      if (!object || object.userData.kind !== kind) {
+        object?.removeFromParent()
+        object = this.prop(kind, key)
+      }
       const carrier = state.players.find(p => p.id === item.carriedBy)
-      if (carrier) { x = carrier.x; z = carrier.z; y = 1.9 }
-      object.position.set(x, y, z)
+      const x = carrier ? carrier.x : item.x
+      const z = carrier ? carrier.z : item.z
+      object.position.set(x, carrier ? 1.85 : y, z)
       object.rotation.y += 0.02
+      return object
     }
-    if (objects.type === 'banana') objects.items?.forEach((item: any) => addItem(item, 'Banana'))
-    if (objects.type === 'pizza') objects.items?.forEach((item: any) => addItem(item, 'Pizza'))
-    if (objects.type === 'balloon') objects.items?.forEach((item: any) => addItem(item, 'Balloon'))
-    objects.prankItems?.forEach((item: any) => addItem(item, item.type === 'banana_peel' ? 'BananaPeel' : item.type === 'jelly_pool' ? 'JellyPuddle' : item.type === 'shockwave' ? 'Mallet' : 'ReverseArrow'))
+    if (objects.type === 'banana') objects.items?.forEach((item: any) => addItem(item, 'banana', 0.55))
+    if (objects.type === 'pizza') objects.items?.forEach((item: any) => addItem(item, ingredientProp(item.kind), 0.35))
+    if (objects.type === 'balloon') objects.items?.forEach((item: any) => addItem(item, 'balloon', 1.5))
+    objects.prankItems?.forEach((item: any) => addItem(item, prankItemProp(item.type), 0.55))
     if (objects.type === 'crown') {
       keep.add('crown')
-      const crown = this.props.get('crown') || this.prop('Crown', 'crown', 0.9)
+      const crown = this.props.get('crown') || this.prop('crown', 'crown')
       const owner = state.players.find(p => p.id === objects.crown?.owner)
       crown.position.set(owner?.x ?? objects.crown?.x ?? 0, owner ? CHARACTER_HEIGHT + 0.1 : 1.1, owner?.z ?? objects.crown?.z ?? 0)
       crown.rotation.y += 0.03
@@ -318,6 +361,9 @@ export class PartyGame {
         pad.scale.y = active ? 1.35 : 0.7
       })
     }
+    if (objects.type === 'bomb') this.syncBomb(state, objects.bomb as BombObject | null, keep)
+    if (objects.type === 'sweeper') this.syncSweeper(objects.sweeper as SweeperObject | null, keep)
+    this.syncTails(state, objects.tails as TailObject[] | null, keep)
     for (const [key, object] of this.props) {
       if (keep.has(key)) continue
       object.removeFromParent()
@@ -329,10 +375,78 @@ export class PartyGame {
     if (objects.mega) this.syncMega(objects.mega as MegaObject, keep)
   }
 
+  /** 시한폭탄 — 든 사람 머리 위에 붙이고, 심지 불꽃을 깜빡인다. */
+  private syncBomb(state: PartyState, bomb: BombObject | null, keep: Set<string>): void {
+    if (!bomb) return
+    keep.add('bomb')
+    const object = this.props.get('bomb') || this.prop('bomb', 'bomb')
+    const holder = state.players.find(p => p.id === bomb.holder)
+    const x = holder && !holder.respawning ? holder.x : bomb.x
+    const z = holder && !holder.respawning ? holder.z : bomb.z
+    const bob = Math.sin(performance.now() / 180) * 0.06
+    object.position.set(x, holder && !holder.respawning ? CHARACTER_HEIGHT + 0.45 + bob : 0.35, z)
+    object.rotation.y += 0.05
+    const spark = object.userData.spark as THREE.Mesh | undefined
+    if (spark) {
+      const urgency = bomb.fuse <= 3 ? 0.5 + Math.abs(Math.sin(performance.now() / 90)) : 1
+      spark.scale.setScalar(urgency)
+      const sparkMaterial = spark.material as THREE.MeshStandardMaterial
+      sparkMaterial.emissiveIntensity = 0.7 + Math.abs(Math.sin(performance.now() / (bomb.fuse <= 3 ? 90 : 220))) * 1.6
+    }
+  }
+
+  /** 회전 스위퍼 막대 — 서버 각도를 그대로 그려서 판정과 그림이 어깃나지 않게 한다. */
+  private syncSweeper(sweeper: SweeperObject | null, keep: Set<string>): void {
+    if (!sweeper) return
+    keep.add('sweeper')
+    let object = this.props.get('sweeper')
+    if (!object) object = this.prop('sweeper_bar', 'sweeper')
+    // 소품 기본 길이(9)를 서버 판정 반지름에 맞춰 늘린다.
+    object.scale.x = (sweeper.radius * 2) / 9
+    object.position.set(0, 0, 0)
+    object.rotation.y = sweeper.angle
+    const warning = sweeper.warn > 0
+    object.traverse((child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh
+      if (!mesh.isMesh) return
+      const material = mesh.material as THREE.MeshStandardMaterial
+      if (!material.emissive) return
+      material.emissive.set(warning ? '#ff3f3f' : '#000000')
+      material.emissiveIntensity = warning ? 0.45 + Math.abs(Math.sin(performance.now() / 110)) * 0.5 : 0
+    })
+  }
+
+  /** 꼬리 뺏기 — 꼬리를 단 플레이어 허리 뒤에 컬러 꼬리를 붙인다. */
+  private syncTails(state: PartyState, tails: TailObject[] | null, keep: Set<string>): void {
+    const owners = new Map((tails || []).map(tail => [tail.id, tail.color]))
+    for (const player of state.players) {
+      const color = owners.get(player.id)
+      const key = `tail:${player.id}`
+      if (!color) continue
+      keep.add(key)
+      const cached = this.tails.get(player.id)
+      if (!cached || cached.userData.color !== color) {
+        cached?.removeFromParent()
+        const object = createTail(color)
+        object.userData.color = color
+        object.traverse((child: THREE.Object3D) => { const mesh = child as THREE.Mesh; if (mesh.isMesh) mesh.castShadow = true })
+        this.root.add(object)
+        this.tails.set(player.id, object)
+        this.props.set(key, object)
+      }
+    }
+    for (const [id, object] of this.tails) {
+      if (owners.has(id)) continue
+      object.removeFromParent()
+      this.tails.delete(id)
+      this.props.delete(`tail:${id}`)
+    }
+  }
+
   /** 무거운 2인 합동 운반 오브젝트 — 황금 피자/트로피와 배달존. */
   private syncMega(mega: MegaObject, keep: Set<string>): void {
     keep.add('mega')
-    let object = this.props.get('mega') as THREE.Group | undefined
+    let object = this.props.get('mega')
     if (!object || object.userData.kind !== mega.kind) {
       object?.removeFromParent()
       object = this.megaProp(mega.kind)
@@ -367,42 +481,8 @@ export class PartyGame {
     ;(ring.material as THREE.MeshBasicMaterial).opacity = mega.delivered ? 0.25 : 0.85
   }
 
-  private megaProp(kind: string): THREE.Group {
-    const gold = new THREE.MeshStandardMaterial({ color: '#ffcf4b', metalness: 0.35, roughness: 0.38, emissive: '#6a4700', emissiveIntensity: 0.22 })
-    if (kind === 'golden_pizza') {
-      const group = new THREE.Group()
-      const source = this.source('Pizza')
-      const body = source ? SkeletonUtils.clone(source) : new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.22, 28), gold)
-      body.traverse((child: THREE.Object3D) => {
-        const mesh = child as THREE.Mesh
-        if (!mesh.isMesh) return
-        mesh.castShadow = true
-        mesh.material = gold
-      })
-      body.scale.setScalar(2.3)
-      group.add(body)
-      return group
-    }
-    const group = new THREE.Group()
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 0.24, 24), gold)
-    base.position.y = 0.12
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 0.8, 16), gold)
-    stem.position.y = 0.62
-    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.34, 1.0, 24), gold)
-    cup.position.y = 1.45
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.07, 10, 28), gold)
-    rim.rotation.x = Math.PI / 2
-    rim.position.y = 1.95
-    group.add(base, stem, cup, rim)
-    for (const side of [-1, 1]) {
-      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.06, 8, 20), gold)
-      handle.position.set(side * 0.8, 1.55, 0)
-      handle.rotation.y = Math.PI / 2
-      group.add(handle)
-    }
-    group.traverse((child: THREE.Object3D) => { const mesh = child as THREE.Mesh; if (mesh.isMesh) mesh.castShadow = true })
-    group.scale.setScalar(1.15)
-    return group
+  private megaProp(kind: string): THREE.Object3D {
+    return createProp(kind === 'golden_pizza' ? 'golden_pizza' : 'golden_trophy')
   }
 
   /** 고무줄 짝꿍 — 서버가 짝지어 준 두 캐릭터를 탄성 밴드로 잇는다. */
@@ -514,9 +594,32 @@ export class PartyGame {
       }
     }
     this.updateBands()
+    this.updateTails()
+  }
+
+  /** 꼬리는 캐릭터 허리 뒤에 붙어 같이 흔들린다. */
+  private updateTails(): void {
+    const state = this.state
+    if (!state) return
+    for (const [id, object] of this.tails) {
+      const view = this.views.get(id)
+      const player = state.players.find(p => p.id === id)
+      if (!view || !player) { object.visible = false; continue }
+      object.visible = !player.respawning
+      const position = view.character.root.position
+      object.position.set(position.x, position.y, position.z)
+      object.rotation.y = view.character.root.rotation.y
+      object.scale.setScalar(1 + Math.sin(performance.now() / 240 + id.length) * 0.04)
+    }
   }
 
   private updateCamera(dt: number): void {
+    if (this.propsMode) {
+      this.camera.position.set(0, 12.5, 15.5)
+      this.lookTarget.set(0, 0.6, 0)
+      this.camera.lookAt(this.lookTarget)
+      return
+    }
     const phase = this.state?.phase
     const me = this.views.get(this.me)
     if (phase === 'play' && me) {

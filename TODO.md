@@ -79,3 +79,20 @@
 - [x] 대기실 인라인 닉네임 변경(서버 검증·전원 즉시 반영·localStorage 저장)
 - [x] 모바일 이벤트 토스트를 캐릭터 얼굴 위 → 픽커 위로 이동
 - [x] `pnpm build`, 9개 클라이언트/통합 테스트, 2개 서버 테스트, PC·모바일 smoke 통과
+
+
+## 2026-11-20 모바일 스킬·쿨타임 수정 · 미니게임 3종 · 소품 구분 완료
+
+- [x] 스킬 버튼 입력 계층 재작성: pointerdown/touchstart/click 단일 처리, `touch-action:none`, 터치 폴백
+- [x] 조이스틱 포인터 캡처 해제(`pointercancel`/`lostpointercapture`)와 멀티터치 동시 입력
+- [x] 클라이언트 즉시 쿨타임 잠금 + 서버 `ACTION_COOLDOWN_MS` 이중 차단, 스냅샷 `cooldownMs` 공개
+- [x] PC 픽커 남은 초·게이지, 모바일 원형 버튼 남은 초·원형 veil, 프레임 단위 갱신
+- [x] 리스폰 중 입력 폐기(복귀 직후 자동 발동 방지), 라운드 시작 시 쿨타임 초기화
+- [x] `hot_potato`(시한폭탄 넘기기)·`sweeper`(회전 장애물 점프)·`tail_tag`(꼬리 뺏기) 서버 판정·점수·봇 AI
+- [x] 8종 풀에서 개인전 3 + 협동전 2, 중복 없는 5라운드 랜덤 셔플(`plan` 스냅샷)
+- [x] 신규 라운드 HUD(폭탄 남은 초·스위퍼 생존 수·꼬리 개수/강탈 수)
+- [x] `src/engine/props.ts` 절차적 소품 16종(바나나 초승달·피자 재료 4종·왕관·풍선·껍질·젤리·뿅망치·화살표·폭탄·스위퍼·꼬리·황금 소품)
+- [x] `?props` 소품 구별 검수 화면
+- [x] 테스트: `tests/mobile-touch.test.mjs`(실제 터치 4종), `tests/minigames.test.mjs`(셔플·폭탄·스위퍼·꼬리 5종)
+- [x] `pnpm build`·`pnpm test`·`pnpm --dir server test`·`pnpm smoke` 통과
+- [x] 라이브 PC/모바일 스크린샷 `downloads/malang-mayhem-shots/` 저장
