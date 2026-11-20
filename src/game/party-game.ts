@@ -7,11 +7,14 @@ export type Player = {
   id: string; seat: number; name: string; color: string; connected: boolean; host: boolean; ready: boolean
   x: number; z: number; vx: number; vz: number; jumpY: number; carried: string
   score: number; roundScore: number; falls: number; prankCount: number; prankSuccesses: number; action?: string; missionProgress?: number; secretMission?: { kind: string; text: string; target: number }; grabbedBy?: string
+  partnerId?: string; respawning?: boolean; respawnIn?: number; respawns?: number; megaDeliveries?: number; megaDuo?: number; megaSolo?: number; tetherYanks?: number; cooldowns?: Record<string, number>
   prankCooldown: number; status: { slip: number; slow: number; ink: number; reverse: number; sticky?: number; stagger?: number; knockdown?: number; hug?: number; spin?: number; immune?: number }
 }
+export type TetherPair = { a: string; b: string; length: number; tension: number; rest: number; max: number }
+export type MegaObject = { id: string; kind: string; name: string; x: number; z: number; carriers: string[]; delivered: boolean; zone: { x: number; z: number }; wobbleUntil: number }
 export type PartyState = {
   code: string; hostId: string; phase: string; roundIndex: number; round: { title: string; short: string; mode: string; timeLeft: number; duration: number } | null
-  players: Player[]; objects: any; platforms: any[]; targetColor: string; result: any; event?: any
+  players: Player[]; objects: any; platforms: any[]; targetColor: string; result: any; event?: any; pairs?: TetherPair[]
 }
 
 type View = {
@@ -30,6 +33,7 @@ type Effect = { object: THREE.Object3D; life: number; ttl: number }
 
 const tmpVec = new THREE.Vector3()
 const tmpLook = new THREE.Vector3()
+const UP = new THREE.Vector3(0, 1, 0)
 
 export class PartyGame {
   readonly renderer: THREE.WebGLRenderer
@@ -40,6 +44,7 @@ export class PartyGame {
   private readonly views = new Map<string, View>()
   private readonly props = new Map<string, THREE.Object3D>()
   private readonly mats = new Map<string, THREE.Material>()
+  private readonly bands = new Map<string, { mesh: THREE.Mesh; material: THREE.MeshStandardMaterial }>()
   private readonly effects: Effect[] = []
   private assetScene?: THREE.Group
   private rigSource?: THREE.Object3D
@@ -182,6 +187,7 @@ export class PartyGame {
       this.views.delete(id)
     }
     this.syncWorld(state)
+    this.syncBands(state)
   }
 
   private createView(player: Player): View {
@@ -235,8 +241,8 @@ export class PartyGame {
   }
 
   showPrankEffect(type: string, x = 0, z = 0): void {
-    const color = type === 'jelly_pool' ? '#b76cff' : type === 'banana_peel' ? '#ffd35c' : type === 'reverse' ? '#57c7ff' : type === 'bonk' ? '#ffd35c' : type === 'tackle' ? '#ff7b68' : type === 'hug' || type === 'grab' ? '#ff9dd0' : type === 'shatter' ? '#fff2c4' : '#ff5d8f'
-    const radius = type === 'shockwave' || type === 'tackle' ? 1.8 : type === 'hug' ? 1.1 : 0.65
+    const color = type === 'jelly_pool' ? '#b76cff' : type === 'banana_peel' ? '#ffd35c' : type === 'reverse' ? '#57c7ff' : type === 'bonk' ? '#ffd35c' : type === 'tackle' ? '#ff7b68' : type === 'hug' || type === 'grab' ? '#ff9dd0' : type === 'shatter' ? '#fff2c4' : type === 'mega' ? '#ffcf4b' : type === 'mega_grab' || type === 'tether' ? '#ff87bd' : type === 'mega_drop' ? '#ff9d5c' : type === 'respawn' ? '#62e8aa' : type === 'fall' ? '#ff5d6c' : '#ff5d8f'
+    const radius = type === 'shockwave' || type === 'tackle' ? 1.8 : type === 'hug' ? 1.1 : type === 'mega' ? 2.3 : type === 'tether' ? 1.2 : 0.65
     const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.09, 10, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.92 }))
     ring.rotation.x = -Math.PI / 2
     ring.position.set(x, 0.06, z)
@@ -320,6 +326,132 @@ export class PartyGame {
     if (objects.delivery) this.marker('delivery', objects.delivery.x, objects.delivery.z, '#ffcf4b', keep)
     if (objects.station) this.marker('station', objects.station.x, objects.station.z, '#ef6b65', keep)
     if (objects.tower) this.marker('tower', objects.tower.x, objects.tower.z, '#a877ff', keep)
+    if (objects.mega) this.syncMega(objects.mega as MegaObject, keep)
+  }
+
+  /** 무거운 2인 합동 운반 오브젝트 — 황금 피자/트로피와 배달존. */
+  private syncMega(mega: MegaObject, keep: Set<string>): void {
+    keep.add('mega')
+    let object = this.props.get('mega') as THREE.Group | undefined
+    if (!object || object.userData.kind !== mega.kind) {
+      object?.removeFromParent()
+      object = this.megaProp(mega.kind)
+      object.userData.kind = mega.kind
+      this.root.add(object)
+      this.props.set('mega', object)
+    }
+    const carriers = mega.carriers.map(id => this.views.get(id)).filter((view): view is View => Boolean(view))
+    let x = mega.x
+    let z = mega.z
+    let y = 0.45
+    if (carriers.length) {
+      x = carriers.reduce((n, view) => n + view.character.root.position.x, 0) / carriers.length
+      z = carriers.reduce((n, view) => n + view.character.root.position.z, 0) / carriers.length
+      y = 1.15 + Math.sin(performance.now() / 220) * 0.06
+    }
+    if (mega.delivered) y = 1.7 + Math.sin(performance.now() / 260) * 0.18
+    object.position.set(x, y, z)
+    object.rotation.y += 0.012
+    if (mega.wobbleUntil > Date.now()) object.rotation.z = Math.sin(performance.now() / 40) * 0.28
+    else object.rotation.z *= 0.9
+    keep.add('mega-zone')
+    let ring = this.props.get('mega-zone') as THREE.Mesh | undefined
+    if (!ring) {
+      ring = new THREE.Mesh(new THREE.TorusGeometry(2.3, 0.1, 10, 40), new THREE.MeshBasicMaterial({ color: '#ffcf4b', transparent: true, opacity: 0.85 }))
+      ring.rotation.x = -Math.PI / 2
+      this.root.add(ring)
+      this.props.set('mega-zone', ring)
+    }
+    ring.position.set(mega.zone.x, 0.07, mega.zone.z)
+    ring.rotation.z += 0.004
+    ;(ring.material as THREE.MeshBasicMaterial).opacity = mega.delivered ? 0.25 : 0.85
+  }
+
+  private megaProp(kind: string): THREE.Group {
+    const gold = new THREE.MeshStandardMaterial({ color: '#ffcf4b', metalness: 0.35, roughness: 0.38, emissive: '#6a4700', emissiveIntensity: 0.22 })
+    if (kind === 'golden_pizza') {
+      const group = new THREE.Group()
+      const source = this.source('Pizza')
+      const body = source ? SkeletonUtils.clone(source) : new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.22, 28), gold)
+      body.traverse((child: THREE.Object3D) => {
+        const mesh = child as THREE.Mesh
+        if (!mesh.isMesh) return
+        mesh.castShadow = true
+        mesh.material = gold
+      })
+      body.scale.setScalar(2.3)
+      group.add(body)
+      return group
+    }
+    const group = new THREE.Group()
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 0.24, 24), gold)
+    base.position.y = 0.12
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 0.8, 16), gold)
+    stem.position.y = 0.62
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.34, 1.0, 24), gold)
+    cup.position.y = 1.45
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.07, 10, 28), gold)
+    rim.rotation.x = Math.PI / 2
+    rim.position.y = 1.95
+    group.add(base, stem, cup, rim)
+    for (const side of [-1, 1]) {
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.06, 8, 20), gold)
+      handle.position.set(side * 0.8, 1.55, 0)
+      handle.rotation.y = Math.PI / 2
+      group.add(handle)
+    }
+    group.traverse((child: THREE.Object3D) => { const mesh = child as THREE.Mesh; if (mesh.isMesh) mesh.castShadow = true })
+    group.scale.setScalar(1.15)
+    return group
+  }
+
+  /** 고무줄 짝꿍 — 서버가 짝지어 준 두 캐릭터를 탄성 밴드로 잇는다. */
+  private syncBands(state: PartyState): void {
+    const wanted = new Set<string>()
+    for (const pair of state.pairs ?? []) {
+      const key = [pair.a, pair.b].sort().join('|')
+      wanted.add(key)
+      let band = this.bands.get(key)
+      if (!band) {
+        const material = new THREE.MeshStandardMaterial({ color: '#ff87bd', emissive: '#ff3f8a', emissiveIntensity: 0.35, roughness: 0.45 })
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 1, 8, 1, true), material)
+        this.root.add(mesh)
+        band = { mesh, material }
+        this.bands.set(key, band)
+      }
+      const playerA = state.players.find(player => player.id === pair.a)
+      const playerB = state.players.find(player => player.id === pair.b)
+      band.mesh.visible = !playerA?.respawning && !playerB?.respawning && Boolean(this.views.get(pair.a)) && Boolean(this.views.get(pair.b))
+      band.material.color.set(pair.tension > 0.6 ? '#ff5d6c' : pair.tension > 0.25 ? '#ffbd4a' : '#ff87bd')
+      band.material.emissiveIntensity = 0.25 + pair.tension * 0.55
+    }
+    for (const [key, band] of this.bands) {
+      if (wanted.has(key)) continue
+      band.mesh.removeFromParent()
+      band.material.dispose()
+      this.bands.delete(key)
+    }
+  }
+
+  private updateBands(): void {
+    for (const [key, band] of this.bands) {
+      if (!band.mesh.visible) continue
+      const [idA, idB] = key.split('|')
+      const a = this.views.get(idA)
+      const b = this.views.get(idB)
+      if (!a || !b) { band.mesh.visible = false; continue }
+      const pa = a.character.root.position
+      const pb = b.character.root.position
+      const ax = pa.x, ay = pa.y + 1.2, az = pa.z
+      const bx = pb.x, by = pb.y + 1.2, bz = pb.z
+      const dx = bx - ax, dy = by - ay, dz = bz - az
+      const length = Math.hypot(dx, dy, dz) || 0.001
+      const sag = Math.max(0, 3.4 - length) * 0.16
+      band.mesh.position.set((ax + bx) / 2, (ay + by) / 2 - sag, (az + bz) / 2)
+      band.mesh.scale.set(1, length, 1)
+      tmpVec.set(dx, dy, dz).normalize()
+      band.mesh.quaternion.setFromUnitVectors(UP, tmpVec)
+    }
   }
 
   private marker(key: string, x: number, z: number, color: string, keep: Set<string>): void {
@@ -340,6 +472,9 @@ export class PartyGame {
     const state = this.state
     for (const [id, view] of this.views) {
       const player = state?.players.find(p => p.id === id)
+      if (player?.respawning) { view.character.root.visible = false; continue }
+      const immune = player?.status?.immune ?? 0
+      view.character.root.visible = immune > 0 ? Math.sin(performance.now() / 70) > -0.15 : true
       const local = id === this.me && !!player
       let heading: number | undefined
       if (local && Math.hypot(this.localInput.x, this.localInput.z) > 0.12) {
@@ -378,6 +513,7 @@ export class PartyGame {
         this.effects.splice(i, 1)
       }
     }
+    this.updateBands()
   }
 
   private updateCamera(dt: number): void {

@@ -1,0 +1,26 @@
+/* 행동별 쿨타임 UI · 대기실 인라인 닉네임 변경 */
+.prank-picker button.is-cooling{opacity:.5;background:rgba(23,21,47,.92);border-color:rgba(255,249,232,.28);color:var(--yellow);position:relative}
+.prank-picker button.is-cooling::after{content:'';position:absolute;left:6px;right:6px;bottom:4px;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--yellow),transparent);opacity:.8}
+.prank-picker button.is-cooling::before{content:attr(data-cooldown);position:absolute;top:-7px;right:-3px;padding:1px 5px;border-radius:999px;background:var(--ink);color:var(--yellow);font-size:8px;letter-spacing:.02em}
+.action-round{position:absolute}
+.action-round.is-cooling{filter:grayscale(.35) brightness(.82)}
+.action-round .cooldown-badge{position:absolute;inset:auto 0 6px;font-size:11px;font-weight:800;letter-spacing:.02em;text-align:center;color:var(--ink);opacity:.85}
+.action-round.is-cooling .cooldown-badge{color:#fff9e8}
+#prank-btn.is-cooling{background:#5b5580;color:#fff9e8}
+#interact-btn.is-cooling{background:#b7879c;color:#fff9e8}
+#interact-btn .cooldown-badge,#prank-btn .cooldown-badge{position:static;display:block;font-size:10px;line-height:1.1;opacity:.9}
+
+.lobby-rename{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px;padding:9px 12px;border-radius:12px;background:rgba(23,21,47,.55);border:1px solid rgba(255,249,232,.14)}
+.lobby-rename label{font-size:10px;font-weight:800;letter-spacing:.1em;color:var(--yellow)}
+.lobby-rename input{flex:1 1 120px;min-width:0;padding:8px 11px;border-radius:9px;border:1px solid rgba(255,249,232,.22);background:rgba(9,8,24,.6);color:var(--cream);font-size:13px;font-weight:800}
+.lobby-rename button{padding:8px 13px;border-radius:9px;background:var(--yellow);color:var(--ink);font-size:12px;font-weight:800;border:none}
+.lobby-colors{display:flex;gap:5px;margin-left:auto}
+.lobby-colors .color-pick{width:20px;height:20px;border-radius:50%}
+.lobby-colors .color-pick.is-selected{outline:2px solid var(--cream);outline-offset:1px}
+@media(max-width:800px){
+  .lobby-rename{padding:8px 10px}
+  .lobby-rename input{flex:1 1 96px;font-size:12px}
+  .lobby-colors{margin-left:0;width:100%}
+  .lobby-colors .color-pick{width:22px;height:22px}
+  .prank-picker button.is-cooling::before{top:-5px;right:0}
+}

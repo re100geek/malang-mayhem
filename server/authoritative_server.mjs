@@ -23,7 +23,8 @@ const BRAKE_ACCEL = 36
 const JUMP_SPEED = 6.5
 const GRAVITY = 18
 const PRANK_RANGE = 2.5
-const PRANK_COOLDOWN_MS = 1350
+// 행동별 서버 쿨타임 — 무한 연타를 막고 동작마다 다른 리듬을 준다.
+const ACTION_COOLDOWN_MS = { headbutt: 1500, bonk: 2000, tackle: 2800, hug: 2500, grab: 800, jump: 180, item: 2500 }
 const PRANK_IMMUNITY_MS = 650
 const PRANK_IMPULSE = 11.5
 const PRANK_BOUNCE = 3.8
@@ -50,9 +51,35 @@ const SECRET_MISSIONS = [
   { kind: 'drop_two', text: '상대가 든 소품 2회 떨어뜨리기', target: 2 },
   { kind: 'ringout', text: '밀치기로 1명 장외시키기', target: 1 },
 ]
+// ── 고무줄 짝꿍 · 2인 합동 운반 · 2초 리스폰 (pair/coop 기믹) ──
+const MEGA_ID = 'mega'
+const TETHER_REST = 3.4
+const TETHER_MAX = 6.6
+const TETHER_SPRING = 34
+const TETHER_DAMPING = 3.4
+const TETHER_YANK_MS = 420
+const TETHER_YANK_PULL = 4.8
+const TETHER_EVENT_MS = 1500
+const TETHER_WOBBLE_OVER = 1.5
+const RESPAWN_COUNTDOWN_MS = 2000
+const RESPAWN_IMMUNE_MS = 1400
+const MEGA_REACH = 2.4
+const MEGA_ZONE_RADIUS = 2.3
+const MEGA_SINGLE_FACTOR = 0.34
+const MEGA_PAIR_FACTOR = 0.86
+const MEGA_SPLIT_MAX = 3.0
+const MEGA_DUO_SCORE = 420
+const MEGA_SOLO_SCORE = 90
+const MEGA_SPAWN = { x: 0, z: 5.4 }
+const MEGA_ZONE = { x: 0, z: -7.2 }
+// 테스트 전용 훅(프로덕션에서는 환경변수가 없어 기본값 그대로 동작한다).
+const ENV_ROUND_MS = Number(process.env.MM_ROUND_MS || 0)
+const ENV_START_ROUND = Number(process.env.MM_START_ROUND || 0)
+const COUNTDOWN_MS = Number(process.env.MM_COUNTDOWN_MS || 3000)
+const RESULT_MS = Number(process.env.MM_RESULT_MS || 6500)
 const GRAB_RANGE = 1.65
 const GRAB_DURATION_MS = 1800
-const GRAB_COOLDOWN_MS = 1100
+const GRAB_COOLDOWN_MS = ACTION_COOLDOWN_MS.grab
 const GRAB_ESCAPE_PRESSES = 3
 const THROW_IMPULSE = 12.5
 const SHATTER_IMPULSE = 9.5
@@ -81,6 +108,18 @@ const spawnFor = seat => {
   const angle = (i / 8) * Math.PI * 2
   return { x: Math.cos(angle) * 5.6, z: Math.sin(angle) * 5.6 }
 }
+const emptyStats = () => ({ bonkHits: 0, tackleHits: 0, hugHits: 0, headbuttHits: 0, falls: 0, respawns: 0, bananaSlips: 0, jellySoaks: 0, shockwaves: 0, reverses: 0, deliveries: 0, grabs: 0, throws: 0, megaDuo: 0, megaSolo: 0, megaJoins: 0, tetherYanks: 0 })
+const AWARD_TAGLINES = {
+  prankster: '오늘 가장 많은 장난을 성공시켰어요.',
+  tumbler: '넘어지고 떨어져도 계속 웃겼어요.',
+  partner: '고무줄로 묶인 채 황금 소품을 함께 날랐어요.',
+  slippery: '바나나 껍질과 젤리를 가장 많이 밟았어요.',
+  wobbler: '짝꿍과 박자 안 맞춰 고무줄을 팽팽 당겼어요.',
+  carrier: '무거운 황금 소품을 끝까지 배달했어요.',
+  champion: '오늘의 최고 점수 주인공이에요.',
+  busy: '배달과 목표 수행을 가장 부지런히 했어요.',
+}
+const awardTagline = award => AWARD_TAGLINES[award.kind] || '오늘의 활약을 기억할게요.'
 const playerSnapshot = (p, viewerId = '') => ({
   id: p.id, seat: p.seat, name: p.name, color: p.color, colorName: p.colorName, bot: !!p.isBot,
   connected: !!p.isBot || !!p.socket?.connected, ready: p.ready, host: p.host,
@@ -88,11 +127,14 @@ const playerSnapshot = (p, viewerId = '') => ({
   jumpY: Number(p.jumpY.toFixed(3)), carried: p.carried, score: p.score, soloScore: p.soloScore,
   contribution: p.contribution, roundScore: p.roundScore, falls: p.falls,
   prankCount: p.prankCount, prankSuccesses: p.prankSuccesses,
-  prankCooldown: Math.max(0, p.prankCooldownUntil - Date.now()),
+  prankCooldown: Math.max(0, (p.cooldowns[p.lastPrankType || 'headbutt'] || 0) - Date.now()),
+  cooldowns: Object.fromEntries(Object.keys(ACTION_COOLDOWN_MS).map(key => [key, Math.max(0, (p.cooldowns[key] || 0) - Date.now())])),
   secretMission: p.id === viewerId && p.secretMission ? { ...p.secretMission } : undefined,
   missionProgress: p.id === viewerId ? p.missionProgress : 0,
   missionComplete: p.id === viewerId ? p.missionComplete : false,
   grabbedBy: p.grabbedBy || '',
+  partnerId: p.partnerId || '', respawning: !!p.respawning, respawnIn: Math.max(0, p.respawnAt - Date.now()), respawns: p.respawns,
+  megaDeliveries: p.megaDeliveries, megaDuo: p.stats.megaDuo, megaSolo: p.stats.megaSolo, tetherYanks: p.stats.tetherYanks,
   action: p.motionUntil > Date.now() ? p.motion : 'Idle', status: { slip: Math.max(0, p.slipUntil - Date.now()), slow: Math.max(0, p.slowUntil - Date.now()), ink: Math.max(0, p.inkUntil - Date.now()), reverse: Math.max(0, p.reverseUntil - Date.now()), sticky: Math.max(0, p.stickyUntil - Date.now()), stagger: Math.max(0, p.staggerUntil - Date.now()), knockdown: Math.max(0, p.knockdownUntil - Date.now()), hug: Math.max(0, p.hugUntil - Date.now()), spin: Number(p.spin.toFixed(3)), immune: Math.max(0, p.prankImmuneUntil - Date.now()) },
 })
 
@@ -106,9 +148,11 @@ function newPlayer(id, seat, name, colorIndex, isBot = false, botDifficulty = 'n
     x: spawn.x, z: spawn.z, vx: 0, vz: 0, jumpY: 0, jumpV: 0,
     input: { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }, lastInputAt: 0, jumpBufferUntil: 0, coyoteUntil: 0,
     carried: '', score: 0, soloScore: 0, contribution: 0, roundScore: 0, falls: 0,
-    crownTime: 0, roundAlive: true, prankCount: 0, prankSuccesses: 0, prankCooldownUntil: 0,
+    crownTime: 0, roundAlive: true, prankCount: 0, prankSuccesses: 0, cooldowns: { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }, lastPrankType: 'headbutt',
     slipUntil: 0, slowUntil: 0, inkUntil: 0, reverseUntil: 0, stickyUntil: 0, staggerUntil: 0, knockdownUntil: 0, hugUntil: 0, prankImmuneUntil: 0, spin: 0, motion: 'Idle', motionUntil: 0,
     secretMission: null, missionProgress: 0, missionComplete: false, lastBonkTargetId: '', grabbedBy: '', grabTargetId: '', grabUntil: 0, grabCooldownUntil: 0, escapePresses: 0,
+    partnerId: '', respawning: false, respawnAt: 0, respawnReason: '', respawns: 0, megaDeliveries: 0, megaCarryTime: 0, lastTetherAt: 0,
+    stats: emptyStats(), roundStats: emptyStats(),
   }
 }
 
@@ -125,12 +169,28 @@ class Room {
     this.roundStartedAt = 0
     this.round = null
     this.roundResult = null
+    this.pairs = []
     this.eventId = 0
     this.event = null
     this.lastBroadcast = 0
     this.targetColor = PLATFORM_COLORS[0]
     this.platforms = []
     this.objects = {}
+    this.pairs = []
+  }
+  bump(player, key, amount = 1) { player.stats[key] = (player.stats[key] || 0) + amount; player.roundStats[key] = (player.roundStats[key] || 0) + amount }
+  partnerOf(player) { return player.partnerId ? this.players.get(player.partnerId) || null : null }
+  /** 협동(짝꿍) 라운드에서 좌석 순서대로 2명씩 고무줄로 묶는다. 홀수면 마지막 한 명은 혼자 뛴다. */
+  assignPairs() {
+    this.pairs = []
+    for (const p of this.players.values()) p.partnerId = ''
+    if (this.definition?.mode !== 'coop') return
+    const lineup = this.connected().sort((a, b) => a.seat - b.seat)
+    for (let i = 0; i + 1 < lineup.length; i += 2) {
+      const a = lineup[i], b = lineup[i + 1]
+      a.partnerId = b.id; b.partnerId = a.id
+      this.pairs.push({ a: a.id, b: b.id, length: dist(a, b), tension: 0, wobbleUntil: 0 })
+    }
   }
 
   get definition() { return this.roundIndex >= 0 ? ROUND_DEFS[this.roundIndex] : null }
@@ -196,7 +256,8 @@ class Room {
   setLobby(reason = '') {
     this.phase = 'lobby'; this.roundIndex = -1; this.phaseEndsAt = 0; this.round = null; this.roundResult = null
     for (const [id, p] of this.players) if (p.isBot) this.players.delete(id)
-    for (const p of this.players.values()) { p.ready = false; p.score = 0; p.soloScore = 0; p.contribution = 0; p.roundScore = 0; p.carried = ''; p.falls = 0; p.prankCount = 0; p.prankSuccesses = 0; p.prankCooldownUntil = 0; p.secretMission = null; p.missionProgress = 0; p.missionComplete = false; p.grabbedBy = ''; p.grabTargetId = '' }
+    this.pairs = []
+    for (const p of this.players.values()) { p.ready = false; p.score = 0; p.soloScore = 0; p.contribution = 0; p.roundScore = 0; p.carried = ''; p.falls = 0; p.prankCount = 0; p.prankSuccesses = 0; p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }; p.secretMission = null; p.missionProgress = 0; p.missionComplete = false; p.grabbedBy = ''; p.grabTargetId = ''; p.partnerId = ''; p.respawning = false; p.respawnAt = 0; p.respawns = 0; p.megaDeliveries = 0; p.stats = emptyStats() }
     if (reason) this.emitEvent('lobby', reason)
   }
   toggleReady(player) {
@@ -208,7 +269,8 @@ class Room {
   start(player, difficulty = 'normal') {
     if (this.phase !== 'lobby' || player.id !== this.hostId || this.humans().length < 1) return false
     if (this.humans().length === 1) this.addBots(difficulty)
-    this.roundIndex = 0
+    for (const p of this.players.values()) { p.stats = emptyStats(); p.roundStats = emptyStats(); p.respawns = 0; p.megaDeliveries = 0; p.falls = 0; p.prankSuccesses = 0; p.prankCount = 0 }
+    this.roundIndex = ENV_START_ROUND >= 0 && ENV_START_ROUND < ROUND_DEFS.length ? ENV_START_ROUND : 0
     this.startCountdown()
     return true
   }
@@ -225,12 +287,15 @@ class Room {
   startCountdown() {
     const def = this.definition
     this.phase = 'countdown'
-    this.phaseEndsAt = Date.now() + 3000
+    this.phaseEndsAt = Date.now() + COUNTDOWN_MS
     this.roundStartedAt = 0
-    for (const p of this.players.values()) { p.roundScore = 0; p.contribution = 0; p.crownTime = 0; p.carried = ''; p.roundAlive = true; p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }; p.slipUntil = 0; p.slowUntil = 0; p.inkUntil = 0; p.reverseUntil = 0; p.stickyUntil = 0; p.staggerUntil = 0; p.knockdownUntil = 0; p.hugUntil = 0; p.prankImmuneUntil = 0; p.spin = 0; p.motion = 'Idle'; p.motionUntil = 0; p.grabbedBy = ''; p.grabTargetId = ''; p.grabUntil = 0; p.escapePresses = 0; p.missionProgress = 0; p.missionComplete = false; p.lastBonkTargetId = '' }
+    for (const p of this.players.values()) { p.roundScore = 0; p.contribution = 0; p.crownTime = 0; p.carried = ''; p.roundAlive = true; p.roundStats = emptyStats(); p.partnerId = ''; p.respawning = false; p.respawnAt = 0; p.respawnReason = ''; p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }; p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }; p.slipUntil = 0; p.slowUntil = 0; p.inkUntil = 0; p.reverseUntil = 0; p.stickyUntil = 0; p.staggerUntil = 0; p.knockdownUntil = 0; p.hugUntil = 0; p.prankImmuneUntil = 0; p.spin = 0; p.motion = 'Idle'; p.motionUntil = 0; p.grabbedBy = ''; p.grabTargetId = ''; p.grabUntil = 0; p.escapePresses = 0; p.missionProgress = 0; p.missionComplete = false; p.lastBonkTargetId = '' }
     this.round = this.buildRound(def)
+    if (def.mode === 'coop') this.round.mega = { id: MEGA_ID, kind: def.index === 1 ? 'golden_pizza' : 'golden_trophy', name: def.index === 1 ? '초대형 황금 피자' : '황금 트로피', x: MEGA_SPAWN.x, z: MEGA_SPAWN.z, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
+    this.assignPairs()
     for (const p of this.players.values()) { const card = SECRET_MISSIONS[(p.seat - 1 + def.index) % SECRET_MISSIONS.length]; p.secretMission = { ...card } }
-    this.emitEvent('round_intro', `${def.title} — ${def.short}`, { roundIndex: def.index, definition: def })
+    const pairLine = this.pairs.length ? ` · 고무줄 짝꿍 ${this.pairs.length}쌍` : ''
+    this.emitEvent('round_intro', `${def.title} — ${def.short}${pairLine}`, { roundIndex: def.index, definition: def, pairs: this.pairs.map(pair => [pair.a, pair.b]) })
     this.broadcast()
   }
   buildRound(def) {
@@ -251,8 +316,8 @@ class Room {
     return { type: 'platform', platforms: this.platforms, targetColor: this.targetColor, pulseAt: Date.now() + 5000, prankItems }
   }
   beginPlay() {
-    this.phase = 'play'; this.roundStartedAt = Date.now(); this.phaseEndsAt = this.roundStartedAt + this.definition.duration * 1000
-    for (const p of this.connected()) { p.x = spawnFor(p.seat).x; p.z = spawnFor(p.seat).z; p.vx = 0; p.vz = 0; p.roundAlive = true }
+    this.phase = 'play'; this.roundStartedAt = Date.now(); this.phaseEndsAt = this.roundStartedAt + (ENV_ROUND_MS > 0 ? ENV_ROUND_MS : this.definition.duration * 1000)
+    for (const p of this.connected()) { p.x = spawnFor(p.seat).x; p.z = spawnFor(p.seat).z; p.vx = 0; p.vz = 0; p.roundAlive = true; p.respawning = false }
     this.emitEvent('round_start', '출발!')
     this.broadcast()
   }
@@ -285,10 +350,25 @@ class Room {
       if (r) { r.points += bonus; r.total = p.score; r.missionComplete = p.missionComplete; r.missionText = m?.text || '' }
     }
     results.sort((a, b) => b.total - a.total || b.roundScore - a.roundScore || a.seat - b.seat)
-    this.roundResult = { roundIndex: this.roundIndex, title: def.title, mode: def.mode, results, progress: this.progressValue() }
-    this.phase = 'result'; this.phaseEndsAt = Date.now() + 6500
+    this.roundResult = { roundIndex: this.roundIndex, title: def.title, mode: def.mode, results, progress: this.progressValue(), recap: this.roundRecap(), pairs: this.pairs.map(pair => ({ a: pair.a, b: pair.b })) }
+    for (const p of this.players.values()) p.respawning = false
+    this.phase = 'result'; this.phaseEndsAt = Date.now() + RESULT_MS
     this.emitEvent('round_result', `${def.title} 결과가 나왔어요!`, { result: this.roundResult })
     this.broadcast()
+  }
+  /** 라운드 결과 화면에 붙는 실제 수치 하이라이트 2~3개. */
+  roundRecap() {
+    const players = this.allPlayers()
+    const recap = []
+    const mvp = [...players].sort((a, b) => b.roundScore - a.roundScore || a.seat - b.seat)[0]
+    if (mvp) recap.push({ label: '라운드 MVP', name: mvp.name, value: `${Math.round(mvp.roundScore)}점` })
+    const tumbler = [...players].sort((a, b) => (b.roundStats.respawns || 0) - (a.roundStats.respawns || 0))[0]
+    if (tumbler && tumbler.roundStats.respawns > 0) recap.push({ label: '몸개그 담당', name: tumbler.name, value: `리스폰 ${tumbler.roundStats.respawns}회` })
+    const duo = [...players].sort((a, b) => (b.roundStats.megaDuo || 0) - (a.roundStats.megaDuo || 0))[0]
+    if (duo && duo.roundStats.megaDuo > 0) recap.push({ label: '찰떡 합동 운반', name: duo.name, value: `${duo.roundStats.megaDuo}회 성공` })
+    const yanker = [...players].sort((a, b) => (b.roundStats.tetherYanks || 0) - (a.roundStats.tetherYanks || 0))[0]
+    if (yanker && yanker.roundStats.tetherYanks > 0 && recap.length < 3) recap.push({ label: '고무줄 팽!', name: yanker.name, value: `${yanker.roundStats.tetherYanks}회` })
+    return recap.slice(0, 3)
   }
   progressValue() {
     if (!this.round) return 0
@@ -302,9 +382,75 @@ class Room {
     const winners = top ? sorted.filter(p => p.score === top.score && p.soloScore === top.soloScore).map(p => p.id) : []
     this.phase = 'final'; this.phaseEndsAt = 0
     const prankster = [...this.allPlayers()].sort((a, b) => b.prankSuccesses - a.prankSuccesses || b.prankCount - a.prankCount)[0]
-    this.roundResult = { winners, rankings: sorted.map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, color: p.color, score: p.score, soloScore: p.soloScore, prankSuccesses: p.prankSuccesses })), bestPrankster: prankster ? { id: prankster.id, name: prankster.name, prankSuccesses: prankster.prankSuccesses } : null }
+    const awards = this.awardBoard(sorted)
+    const megas = this.allPlayers().reduce((acc, p) => { acc.duo += p.stats.megaDuo; acc.solo += p.stats.megaSolo; return acc }, { duo: 0, solo: 0 })
+    this.roundResult = {
+      winners,
+      rankings: sorted.map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, color: p.color, score: p.score, soloScore: p.soloScore, prankSuccesses: p.prankSuccesses, respawns: p.respawns, falls: p.falls, megaDuo: p.stats.megaDuo, megaSolo: p.stats.megaSolo, partnerId: p.partnerId || '' })),
+      bestPrankster: prankster ? { id: prankster.id, name: prankster.name, prankSuccesses: prankster.prankSuccesses } : null,
+      awards,
+      highlights: this.highlightLines(sorted, megas),
+      megaTotals: megas,
+    }
     this.emitEvent('final', top ? `${top.name}님, 말랑 챔피언!` : '공동 우승!')
     this.broadcast()
+  }
+  /**
+   * 대환장 어워드 — 모든 타이틀은 서버가 집계한 실제 수치에서만 나온다.
+   * 활동이 부족한 항목은 후보에서 빠지고, 최소 2개 · 최대 4개를 돌려준다.
+   */
+  awardBoard(sorted) {
+    const players = this.allPlayers()
+    const best = (list, score) => list.reduce((top, p) => (!top || score(p) > score(top) ? p : top), null)
+    const teams = this.pairs.map(pair => {
+      const a = this.players.get(pair.a), b = this.players.get(pair.b)
+      if (!a || !b) return null
+      return { a, b, duo: a.stats.megaDuo + b.stats.megaDuo, score: a.score + b.score, respawns: a.respawns + b.respawns, yanks: a.stats.tetherYanks + b.stats.tetherYanks }
+    }).filter(Boolean)
+
+    const candidates = []
+    const prankster = best(players.filter(p => p.prankSuccesses > 0), p => p.prankSuccesses * 10 + p.prankCount)
+    if (prankster) candidates.push({ kind: 'prankster', title: '최고의 장난꾸러기', emoji: '😈', ids: [prankster.id], names: [prankster.name], value: prankster.prankSuccesses, metric: `장난 성공 ${prankster.prankSuccesses}회`, color: prankster.color })
+
+    const tumbler = best(players.filter(p => p.respawns > 0), p => p.respawns * 10 + p.falls)
+    if (tumbler) candidates.push({ kind: 'tumbler', title: '몸개그 장인', emoji: '🤕', ids: [tumbler.id], names: [tumbler.name], value: tumbler.respawns, metric: `2초 리스폰 ${tumbler.respawns}회 · 장외 ${tumbler.falls}회`, color: tumbler.color })
+
+    const team = teams.sort((x, y) => y.duo - x.duo || y.score - x.score)[0]
+    if (team) candidates.push({ kind: 'partner', title: '찰떡 짝꿍', emoji: '🪢', ids: [team.a.id, team.b.id], names: [team.a.name, team.b.name], value: team.duo, metric: team.duo > 0 ? `합동 운반 ${team.duo}회 · 2인 합계 ${team.score}점` : `2인 합계 ${team.score}점 · 고무줄 팽 ${team.yanks}회`, color: team.a.color })
+
+    const slippery = best(players.filter(p => p.stats.bananaSlips + p.stats.jellySoaks > 0), p => p.stats.bananaSlips + p.stats.jellySoaks)
+    if (slippery) candidates.push({ kind: 'slippery', title: '미끄덩 지배자', emoji: '🍌', ids: [slippery.id], names: [slippery.name], value: slippery.stats.bananaSlips + slippery.stats.jellySoaks, metric: `바나나 ${slippery.stats.bananaSlips}번 · 젤리 ${slippery.stats.jellySoaks}번`, color: slippery.color })
+
+    const wobbler = best(players.filter(p => p.stats.tetherYanks > 0), p => p.stats.tetherYanks)
+    if (wobbler) candidates.push({ kind: 'wobbler', title: '고무줄 휘청왕', emoji: '🤸', ids: [wobbler.id], names: [wobbler.name], value: wobbler.stats.tetherYanks, metric: `짝꿍 고무줄 팽 ${wobbler.stats.tetherYanks}회`, color: wobbler.color })
+
+    const carrier = best(players.filter(p => p.stats.megaDuo + p.stats.megaSolo > 0), p => p.stats.megaDuo * 10 + p.stats.megaSolo)
+    if (carrier) candidates.push({ kind: 'carrier', title: '황금 운반꾼', emoji: '🍕', ids: [carrier.id], names: [carrier.name], value: carrier.stats.megaDuo + carrier.stats.megaSolo, metric: `합동 운반 ${carrier.stats.megaDuo}회 · 단독 ${carrier.stats.megaSolo}회`, color: carrier.color })
+
+    const awards = candidates.slice(0, 4)
+    // 활동이 적은 매치에서도 시상식이 비지 않도록 점수 기준 대체 어워드로 2개를 채운다.
+    const filler = [
+      { kind: 'champion', title: '말랑 챔피언', emoji: '🏆', ids: [sorted[0]?.id].filter(Boolean), names: [sorted[0]?.name].filter(Boolean), value: sorted[0]?.score || 0, metric: `총 ${sorted[0]?.score || 0}점`, color: sorted[0]?.color },
+      { kind: 'busy', title: '부지런상', emoji: '🐝', ids: [best(players, p => p.stats.deliveries + p.roundScore)?.id].filter(Boolean), names: [best(players, p => p.stats.deliveries + p.roundScore)?.name].filter(Boolean), value: best(players, p => p.stats.deliveries)?.stats.deliveries || 0, metric: `배달 ${best(players, p => p.stats.deliveries)?.stats.deliveries || 0}회`, color: '#ffbd4a' },
+    ]
+    for (const extra of filler) if (awards.length < 2 && !awards.some(a => a.kind === extra.kind) && extra.ids.length) awards.push(extra)
+    return awards.map(award => ({ ...award, tagline: awardTagline(award) }))
+  }
+  /** 결과 화면 하이라이트 카드 2~4줄. */
+  highlightLines(sorted, megas) {
+    const players = this.allPlayers()
+    const lines = []
+    if (megas.duo + megas.solo > 0) lines.push({ label: '합동 운반', text: `황금 소품 배달 ${megas.duo + megas.solo}회 (짝꿍 ${megas.duo} · 단독 ${megas.solo})`, value: `+${megas.duo * MEGA_DUO_SCORE + megas.solo * MEGA_SOLO_SCORE}P` })
+    const totalFalls = players.reduce((n, p) => n + p.respawns, 0)
+    if (totalFalls > 0) lines.push({ label: '와장창', text: `2초 리스폰 총 ${totalFalls}회`, value: `${Math.max(...players.map(p => p.respawns))}회 최다` })
+    const totalYanks = players.reduce((n, p) => n + p.stats.tetherYanks, 0)
+    if (totalYanks > 0) lines.push({ label: '고무줄', text: `짝꿍 고무줄이 팽 튄 횟수 ${totalYanks}회`, value: `${Math.max(...players.map(p => p.stats.tetherYanks))}회 최다` })
+    const totalSlips = players.reduce((n, p) => n + p.stats.bananaSlips + p.stats.jellySoaks, 0)
+    if (totalSlips > 0) lines.push({ label: '미끄덩', text: `바나나·젤리 피해 ${totalSlips}회`, value: `${Math.max(...players.map(p => p.stats.bananaSlips + p.stats.jellySoaks))}회 최다` })
+    const topPrank = players.reduce((n, p) => n + p.prankSuccesses, 0)
+    if (topPrank > 0) lines.push({ label: '장난', text: `장난 성공 총 ${topPrank}회`, value: `${Math.max(...players.map(p => p.prankSuccesses))}회 최다` })
+    if (!lines.length && sorted[0]) lines.push({ label: '말랑', text: `${sorted[0].name}님이 ${sorted[0].score}점으로 1위`, value: '수고했어요!' })
+    return lines.slice(0, 4)
   }
   rematch(player) {
     if (this.phase !== 'final' || player.id !== this.hostId) return
@@ -327,6 +473,7 @@ class Room {
   nearbyObject(player, list) { return list.find(o => !o.delivered && !o.broken && (!o.carriedBy || o.carriedBy === player.id) && dist(player, o) <= 1.7) }
   dropCarried(target) {
     if (!target.carried) return false
+    if (target.carried === MEGA_ID) { this.releaseMega(target); return true }
     const r = this.round
     if (r?.type === 'banana') { const item = r.bananas.find(o => o.id === target.carried); if (item) { item.carriedBy = ''; item.x = target.x; item.z = target.z } }
     if (r?.type === 'pizza') { const item = r.ingredients.find(o => o.id === target.carried); if (item) { item.carriedBy = ''; item.x = target.x; item.z = target.z } }
@@ -337,6 +484,7 @@ class Room {
   }
   shatterCarried(target, reason = 'impact') {
     if (!target.carried) return false
+    if (target.carried === MEGA_ID) { this.releaseMega(target); return true }
     const id = target.carried
     const r = this.round
     const lists = [r?.bananas, r?.ingredients, r?.balloons]
@@ -347,8 +495,161 @@ class Room {
     this.emitEvent('shatter', `${target.name}님의 소품이 와장창 깨졌다!`, { playerId: target.id, x: target.x, z: target.z, reason, fragments: 6 })
     return true
   }
+  /**
+   * 고무줄 짝꿍 — 짝과의 거리가 늘어난 만큼 서버가 양쪽을 서로 끌어당긴다.
+   * 2초 리스폰 중인 플레이어는 힘을 받지 않고, 최대 길이를 넘으면 단단히 당겨 붙인다.
+   */
+  updateTether(dt) {
+    if (!this.pairs.length) return
+    const now = Date.now()
+    for (const pair of this.pairs) {
+      const a = this.players.get(pair.a), b = this.players.get(pair.b)
+      if (!a || !b) continue
+      const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz)
+      pair.length = d
+      const over = Math.max(0, d - TETHER_REST)
+      pair.tension = clamp(over / (TETHER_MAX - TETHER_REST), 0, 1)
+      if (d > 0.001 && over > 0) {
+        const nx = dx / d, nz = dz / d
+        const pull = Math.min(22, over * TETHER_SPRING)
+        if (!a.respawning) { a.vx += nx * pull * dt; a.vz += nz * pull * dt }
+        if (!b.respawning) { b.vx -= nx * pull * dt; b.vz -= nz * pull * dt }
+        const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz
+        const damping = rel * TETHER_DAMPING * dt
+        if (!a.respawning) { a.vx += nx * damping; a.vz += nz * damping }
+        if (!b.respawning) { b.vx -= nx * damping; b.vz -= nz * damping }
+        if (over > TETHER_WOBBLE_OVER) pair.wobbleUntil = now + 160
+      }
+      if (d > TETHER_MAX) {
+        const nx = dx / d, nz = dz / d, excess = d - TETHER_MAX
+        if (!a.respawning) { a.x = clamp(a.x + nx * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2); a.z = clamp(a.z + nz * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2) }
+        if (!b.respawning) { b.x = clamp(b.x - nx * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2); b.z = clamp(b.z - nz * excess * 0.5, -WORLD_RADIUS - 2.2, WORLD_RADIUS + 2.2) }
+      }
+    }
+  }
+  /** 한 명이 점프하면 고무줄이 팽 당겨져 둘 다 휘청한다(박자 안 맞는 슬랩스틱). */
+  tetherYank(jumper) {
+    const partner = this.partnerOf(jumper)
+    if (!partner || partner.respawning || jumper.respawning) return
+    const d = dist(jumper, partner)
+    if (d > TETHER_MAX - 0.4) return
+    const now = Date.now()
+    if (now - jumper.lastTetherAt < TETHER_EVENT_MS) return
+    jumper.lastTetherAt = now
+    partner.lastTetherAt = now
+    const dx = partner.x - jumper.x, dz = partner.z - jumper.z, len = Math.hypot(dx, dz) || 1
+    partner.staggerUntil = Math.max(partner.staggerUntil, now + TETHER_YANK_MS)
+    jumper.staggerUntil = Math.max(jumper.staggerUntil, now + Math.round(TETHER_YANK_MS * 0.5))
+    partner.vx += (dx / len) * TETHER_YANK_PULL; partner.vz += (dz / len) * TETHER_YANK_PULL
+    jumper.vx -= (dx / len) * TETHER_YANK_PULL * 0.6; jumper.vz -= (dz / len) * TETHER_YANK_PULL * 0.6
+    jumper.motion = 'Hit'; jumper.motionUntil = now + 320
+    partner.motion = 'Hit'; partner.motionUntil = now + 320
+    this.bump(jumper, 'tetherYanks'); this.bump(partner, 'tetherYanks')
+    this.emitEvent('tether', `${jumper.name}·${partner.name} 짝꿍의 고무줄이 팡! 둘이 같이 휘청!`, { playerId: jumper.id, partnerId: partner.id, x: partner.x, z: partner.z })
+  }
+  /** 낙하·탈락 → 2초 카운트다운 뒤 아레나 안전 위치로 즉시 복귀. */
+  startRespawn(player, reason = 'ringout') {
+    if (player.respawning || this.phase !== 'play') return
+    const now = Date.now()
+    player.respawning = true
+    player.respawnAt = now + RESPAWN_COUNTDOWN_MS
+    player.respawnReason = reason
+    this.dropCarried(player)
+    player.carried = ''
+    player.vx = 0; player.vz = 0; player.jumpV = 0; player.jumpY = 0
+    player.grabbedBy = ''; player.grabTargetId = ''
+    player.staggerUntil = 0; player.knockdownUntil = 0; player.hugUntil = 0
+    player.respawns++
+    this.bump(player, 'respawns')
+    if (reason === 'ringout' || reason === 'wall') { player.falls++; this.bump(player, 'falls') }
+    const text = reason === 'tile' ? `${player.name}님, 안내 색 발판 밖! 2초 뒤 복귀` : `${player.name}님 와장창! 2초 뒤 복귀`
+    this.emitEvent('fall', text, { playerId: player.id, x: player.x, z: player.z, reason, countdown: RESPAWN_COUNTDOWN_MS })
+  }
+  safeSpawn(player) {
+    if (this.round?.type === 'platform') {
+      const tile = this.platforms.find(t => t.color === this.round.targetColor) || this.platforms[0]
+      if (tile) return { x: tile.x, z: tile.z }
+    }
+    const spawn = spawnFor(player.seat)
+    const radius = Math.hypot(spawn.x, spawn.z) || 1
+    const limit = WORLD_RADIUS - 3
+    const scale = radius > limit ? limit / radius : 1
+    return { x: spawn.x * scale, z: spawn.z * scale }
+  }
+  completeRespawn(player) {
+    if (!player.respawning) return
+    const now = Date.now()
+    const spot = this.safeSpawn(player)
+    player.x = spot.x; player.z = spot.z
+    player.vx = 0; player.vz = 0; player.jumpY = 0; player.jumpV = 0
+    player.respawning = false; player.respawnAt = 0
+    player.prankImmuneUntil = now + RESPAWN_IMMUNE_MS
+    player.motion = 'Jump'; player.motionUntil = now + 420
+    this.emitEvent('respawn', `${player.name}님 복귀! (무적 ${Math.round(RESPAWN_IMMUNE_MS / 100) / 10}초)`, { playerId: player.id, x: player.x, z: player.z })
+  }
+  /** 무거운 2인 합동 운반 오브젝트 — 한 명이면 느리게 질질 끌리고, 둘이면 빠르게 날아간다. */
+  joinMega(player) {
+    const mega = this.round?.mega
+    if (!mega || mega.delivered || mega.carriers.length >= 2 || player.carried) return false
+    player.carried = MEGA_ID
+    mega.carriers.push(player.id)
+    this.bump(player, 'megaJoins')
+    const names = mega.carriers.map(id => this.players.get(id)?.name).filter(Boolean)
+    if (mega.carriers.length >= 2) this.emitEvent('mega_grab', `${names.join('·')} 짝꿍이 ${mega.name}를 번쩍! 함께 배달존으로!`, { x: mega.x, z: mega.z, carriers: [...mega.carriers] })
+    else this.emitEvent('mega_grab', `${player.name}님이 ${mega.name}를 혼자 들려다 휘청! 짝꿍의 E가 필요해요.`, { x: mega.x, z: mega.z, carriers: [...mega.carriers] })
+    return true
+  }
+  releaseMega(player, silent = false) {
+    const mega = this.round?.mega
+    if (!mega) return false
+    const had = mega.carriers.includes(player.id)
+    mega.carriers = mega.carriers.filter(id => id !== player.id)
+    if (player.carried === MEGA_ID) player.carried = ''
+    if (had && !silent) this.emitEvent('mega_drop', `${player.name}님이 ${mega.name}를 내려놓았어요.`, { x: mega.x, z: mega.z })
+    return had
+  }
+  deliverMega(carriers) {
+    const mega = this.round?.mega
+    if (!mega || mega.delivered) return
+    mega.delivered = true
+    mega.deliveredAt = Date.now()
+    const duo = carriers.length >= 2
+    const bonus = duo ? MEGA_DUO_SCORE : MEGA_SOLO_SCORE
+    for (const p of carriers) {
+      p.carried = ''
+      p.roundScore += bonus
+      p.contribution += duo ? 10 : 3
+      p.megaDeliveries++
+      this.bump(p, duo ? 'megaDuo' : 'megaSolo')
+    }
+    mega.carriers = []
+    const names = carriers.map(p => p.name).join('·')
+    this.emitEvent('mega', duo ? `${names} 짝꿍이 ${mega.name} 배달 성공! +${bonus}P 대박 보너스!` : `${names}님이 혼자 ${mega.name}를 질질 끌어 배달… +${bonus}P`, { x: mega.x, z: mega.z, duo, bonus, carriers: carriers.map(p => p.id) })
+  }
+  updateMega(dt) {
+    const mega = this.round?.mega
+    if (!mega || mega.delivered) return
+    const carriers = mega.carriers.map(id => this.players.get(id)).filter(p => p && !p.respawning && p.carried === MEGA_ID)
+    mega.carriers = carriers.map(p => p.id)
+    for (const p of carriers) { p.megaCarryTime += dt; this.bump(p, 'megaCarryTime', dt) }
+    if (!carriers.length) return
+    const cx = carriers.reduce((n, p) => n + p.x, 0) / carriers.length
+    const cz = carriers.reduce((n, p) => n + p.z, 0) / carriers.length
+    mega.x = cx; mega.z = cz
+    if (carriers.length >= 2 && dist(carriers[0], carriers[1]) > MEGA_SPLIT_MAX) {
+      mega.carriers = []
+      for (const p of carriers) { p.carried = ''; p.staggerUntil = Date.now() + 500; p.motion = 'Hit'; p.motionUntil = Date.now() + 500 }
+      mega.wobbleUntil = Date.now() + 700
+      this.emitEvent('mega_drop', `${mega.name}가 휘청! 둘이 같이 들어야 빨라요.`, { x: mega.x, z: mega.z })
+      return
+    }
+    if (dist(mega, mega.zone) <= MEGA_ZONE_RADIUS) this.deliverMega(carriers)
+  }
   updateGrab(player) {
     const now = Date.now()
+    // 합동 운반 오브젝트 옆에서는 E가 '사람 잡기'보다 '함께 들기'를 우선한다.
+    const mega = this.round?.mega
+    if (mega && !mega.delivered && (!player.carried || player.carried === MEGA_ID) && dist(player, mega) <= MEGA_REACH) return
     if (player.grabTargetId) {
       const target = this.players.get(player.grabTargetId)
       if (!target || !target.socket?.connected && !target.isBot || now >= player.grabUntil) {
@@ -359,7 +660,7 @@ class Room {
       target.z = clamp(player.z - (player.z - target.z) * .18, -WORLD_RADIUS, WORLD_RADIUS)
       target.vx = player.vx * .25; target.vz = player.vz * .25
       if (player.input.interact) {
-        player.input.interact = false; player.grabTargetId = ''; target.grabbedBy = ''; target.vx = player.vx + (player.vx || 1) * THROW_IMPULSE; target.vz = player.vz + (player.vz || 0) * THROW_IMPULSE; target.jumpV = Math.max(target.jumpV, 4.2); target.motion = 'Hit'; target.motionUntil = now + 800; this.shatterCarried(target, 'throw'); this.emitEvent('throw', `${player.name}님이 ${target.name}님을 던졌다!`, { attackerId: player.id, targetId: target.id, x: target.x, z: target.z })
+        player.input.interact = false; player.grabTargetId = ''; target.grabbedBy = ''; target.vx = player.vx + (player.vx || 1) * THROW_IMPULSE; target.vz = player.vz + (player.vz || 0) * THROW_IMPULSE; target.jumpV = Math.max(target.jumpV, 4.2); target.motion = 'Hit'; target.motionUntil = now + 800; this.shatterCarried(target, 'throw'); this.bump(player, 'throws'); this.emitEvent('throw', `${player.name}님이 ${target.name}님을 던졌다!`, { attackerId: player.id, targetId: target.id, x: target.x, z: target.z })
       }
       return
     }
@@ -367,21 +668,24 @@ class Room {
       if (player.input.interact) { player.escapePresses++; player.input.interact = false; if (player.escapePresses >= GRAB_ESCAPE_PRESSES) { const holder = this.players.get(player.grabbedBy); if (holder) holder.grabTargetId = ''; player.grabbedBy = ''; player.escapePresses = 0; this.emitEvent('escape', `${player.name}님이 잡기에서 탈출!`) } }
       return
     }
-    if (!player.input.interact || now < player.grabCooldownUntil) return
+    if (!player.input.interact || now < player.cooldowns.grab) return
     const target = this.connected().filter(p => p.id !== player.id && !p.grabbedBy && dist(player, p) <= GRAB_RANGE).sort((a, b) => dist(player, a) - dist(player, b))[0]
     if (!target) return
-    player.input.interact = false; player.grabTargetId = target.id; player.grabUntil = now + GRAB_DURATION_MS; player.grabCooldownUntil = now + GRAB_COOLDOWN_MS; target.grabbedBy = player.id; target.escapePresses = 0; this.emitEvent('grab', `${player.name}님이 ${target.name}님을 붙잡았다!`, { attackerId: player.id, targetId: target.id, x: target.x, z: target.z })
+    player.input.interact = false; player.grabTargetId = target.id; player.grabUntil = now + GRAB_DURATION_MS; player.cooldowns.grab = now + GRAB_COOLDOWN_MS; target.grabbedBy = player.id; target.escapePresses = 0; this.bump(player, 'grabs'); this.emitEvent('grab', `${player.name}님이 ${target.name}님을 붙잡았다!`, { attackerId: player.id, targetId: target.id, x: target.x, z: target.z })
   }
   processPrank(attacker) {
-    if (!attacker.input.prank || Date.now() < attacker.prankCooldownUntil) return
-    attacker.input.prank = false
-    const target = this.connected().filter(p => p.id !== attacker.id && dist(attacker, p) <= PRANK_RANGE).sort((a, b) => dist(attacker, a) - dist(attacker, b))[0]
-    attacker.prankCooldownUntil = Date.now() + PRANK_COOLDOWN_MS
-    if (!target || Date.now() < target.prankImmuneUntil) return
-    const prankType = MOTION_PRANKS.includes(attacker.input.prankType) ? attacker.input.prankType : 'headbutt'
+    if (!attacker.input.prank) return
     const now = Date.now()
+    const prankType = MOTION_PRANKS.includes(attacker.input.prankType) ? attacker.input.prankType : 'headbutt'
+    attacker.input.prank = false
+    attacker.lastPrankType = prankType
+    // 행동별 쿨타임: 같은 동작을 연타하면 이 입력은 버려진다.
+    if (now < (attacker.cooldowns[prankType] || 0)) return
+    attacker.cooldowns[prankType] = now + ACTION_COOLDOWN_MS[prankType]
     const motionNames = { headbutt: 'Bonk', bonk: 'Bonk', tackle: 'Bonk', hug: 'Bonk' }
     attacker.motion = motionNames[prankType]; attacker.motionUntil = now + 700
+    const target = this.connected().filter(p => p.id !== attacker.id && dist(attacker, p) <= PRANK_RANGE).sort((a, b) => dist(attacker, a) - dist(attacker, b))[0]
+    if (!target || now < target.prankImmuneUntil) return
     const dx = target.x - attacker.x, dz = target.z - attacker.z, length = Math.hypot(dx, dz) || 1
     const nx = dx / length, nz = dz / length
     target.prankImmuneUntil = now + PRANK_IMMUNITY_MS
@@ -392,6 +696,7 @@ class Room {
     else { target.vx += nx * PRANK_IMPULSE; target.vz += nz * PRANK_IMPULSE; target.jumpV = Math.max(target.jumpV, PRANK_BOUNCE) }
     const edge = Math.hypot(target.x + nx * 1.25, target.z + nz * 1.25) >= WORLD_RADIUS - .35
     const dropped = Boolean(target.carried && (prankType === 'tackle' || target.jumpY < 1.1 || edge)) && this.dropCarried(target)
+    this.bump(attacker, prankType === 'bonk' ? 'bonkHits' : prankType === 'tackle' ? 'tackleHits' : prankType === 'hug' ? 'hugHits' : 'headbuttHits')
     if (dropped && attacker.secretMission?.kind === 'drop_two') attacker.missionProgress++
     if (edge && attacker.secretMission?.kind === 'ringout') attacker.missionProgress++
     if (prankType === 'bonk') attacker.lastBonkTargetId = target.id
@@ -416,30 +721,42 @@ class Room {
       for (const other of this.connected()) if (other.id !== player.id && dist(player, other) < SHOCKWAVE_RADIUS && now >= other.prankImmuneUntil) { const dx = other.x - player.x, dz = other.z - player.z, len = Math.hypot(dx, dz) || 1; other.vx += dx / len * SHOCKWAVE_IMPULSE; other.vz += dz / len * SHOCKWAVE_IMPULSE; other.jumpV = Math.max(other.jumpV, SHOCKWAVE_BOUNCE); other.prankImmuneUntil = now + PRANK_IMMUNITY_MS; if (other.carried && other.jumpY < 1.1) this.dropCarried(other) }
     }
     player.prankSuccesses++
+    this.bump(player, item.type === 'banana_peel' ? 'bananaSlips' : item.type === 'jelly_pool' ? 'jellySoaks' : item.type === 'shockwave' ? 'shockwaves' : 'reverses')
     const names = { banana_peel: '바나나 껍질', jelly_pool: '끈적 젤리 웅덩이', shockwave: '뿅망치 충격파', reverse: '방향 반전' }
     this.emitEvent('prank_item', `${player.name}님이 ${names[item.type]} 장난!`, { itemType: item.type, playerId: player.id, x: player.x, z: player.z })
   }
   updatePlayer(player, dt) {
+    if (player.respawning) return
     const input = player.input
     const roundIndex = this.definition?.index ?? 0
     const reverse = Date.now() < player.reverseUntil ? -1 : 1
     const now = Date.now()
     const slipping = now < player.slipUntil
     const sticky = now < player.stickyUntil
+    const mega = this.round?.mega
+    const megaFactor = player.carried === MEGA_ID && mega ? (mega.carriers.length >= 2 ? MEGA_PAIR_FACTOR : MEGA_SINGLE_FACTOR) : 1
     const speedFactor = player.grabbedBy ? .12 : now < player.knockdownUntil ? .08 : now < player.hugUntil ? .25 : now < player.staggerUntil ? .35 : now < player.slowUntil ? .42 : slipping ? BANANA_SLIP_ACCEL : 1
     const accel = sticky ? 8 : slipping ? 7 : (roundIndex === 0 ? MOVE_ACCEL : MOVE_ACCEL)
-    const desiredX = input.x * reverse * MOVE_SPEED * speedFactor, desiredZ = input.z * reverse * MOVE_SPEED * speedFactor
+    const desiredX = input.x * reverse * MOVE_SPEED * speedFactor * megaFactor, desiredZ = input.z * reverse * MOVE_SPEED * speedFactor * megaFactor
     const currentSpeed = Math.hypot(player.vx, player.vz), braking = Math.hypot(desiredX, desiredZ) < currentSpeed
     player.vx += (desiredX - player.vx) * Math.min(1, (braking ? BRAKE_ACCEL : accel) * dt)
     player.vz += (desiredZ - player.vz) * Math.min(1, (braking ? BRAKE_ACCEL : accel) * dt)
     if (roundIndex === 0 || slipping || sticky) { const friction = slipping ? 0.994 : sticky ? 0.975 : 0.99; player.vx *= friction; player.vz *= friction }
     player.spin *= Math.pow(0.08, dt)
     if (player.jumpY <= 0.01) player.coyoteUntil = now + COYOTE_MS
-    if (now < player.jumpBufferUntil && (player.jumpY <= 0.01 || now <= player.coyoteUntil)) { player.jumpV = JUMP_SPEED; player.jumpBufferUntil = 0 }
+    if (now < player.jumpBufferUntil && (player.jumpY <= 0.01 || now <= player.coyoteUntil) && now >= player.cooldowns.jump) {
+      player.jumpV = JUMP_SPEED * (player.carried === MEGA_ID ? 0.7 : 1)
+      player.jumpBufferUntil = 0
+      player.cooldowns.jump = now + ACTION_COOLDOWN_MS.jump
+      this.tetherYank(player)
+    }
     player.jumpV -= GRAVITY * dt; player.jumpY = Math.max(0, player.jumpY + player.jumpV * dt); if (!player.jumpY) player.jumpV = 0
     const nextX = player.x + player.vx * dt, nextZ = player.z + player.vz * dt
-    player.x = clamp(nextX, -WORLD_RADIUS, WORLD_RADIUS); player.z = clamp(nextZ, -WORLD_RADIUS, WORLD_RADIUS)
-    if ((Math.abs(player.x) >= WORLD_RADIUS || Math.abs(player.z) >= WORLD_RADIUS) && Math.hypot(player.vx, player.vz) >= SHATTER_IMPULSE) this.shatterCarried(player, 'wall')
+    const limit = WORLD_RADIUS + 2.2
+    player.x = clamp(nextX, -limit, limit); player.z = clamp(nextZ, -limit, limit)
+    const away = Math.hypot(player.x, player.z)
+    if (away >= WORLD_RADIUS && Math.hypot(player.vx, player.vz) >= SHATTER_IMPULSE) this.shatterCarried(player, 'wall')
+    if (away > WORLD_RADIUS + 0.35) this.startRespawn(player, 'ringout')
     this.updateGrab(player)
     this.processPrank(player)
     this.updateInteraction(player)
@@ -448,16 +765,26 @@ class Room {
   }
   updateBotInput(bot, now) {
     if (!bot.isBot || this.phase !== 'play' || now < bot.nextAiAt) return
+    if (bot.respawning) return
     const intervals = { easy: 260, normal: 165, hard: 95 }
     bot.nextAiAt = now + (intervals[bot.botDifficulty] || intervals.normal)
     const r = this.round
     let target = this.connected().filter(p => p.id !== bot.id).sort((a, b) => dist(bot, a) - dist(bot, b))[0]
     let objective = target
     const list = r?.type === 'banana' ? r.bananas : r?.type === 'pizza' ? r.ingredients : r?.type === 'balloon' ? r.balloons : []
-    if (bot.carried) objective = r?.delivery || r?.station || r?.tower || objective
-    else if (list.length) objective = list.filter(o => !o.delivered && !o.carriedBy).sort((a, b) => dist(bot, a) - dist(bot, b))[0] || objective
-    else if (r?.type === 'crown') objective = r.crown.owner && r.crown.owner !== bot.id ? this.players.get(r.crown.owner) : r.crown
-    else if (r?.type === 'platform') objective = this.platforms.find(p => p.color === r.targetColor) || objective
+    const mega = r?.mega
+    // 합동 운반: 짝꿍이 이미 들고 있거나 가까이 있으면 봇도 함께 든다(1인 모드의 짝꿍 봇).
+    if (mega && !mega.delivered) {
+      const partner = bot.partnerId ? this.players.get(bot.partnerId) : null
+      const partnerCarrying = partner && mega.carriers.includes(partner.id)
+      const nearMega = dist(bot, mega) < 6.5
+      if (mega.carriers.includes(bot.id)) objective = mega.zone
+      else if (!bot.carried && (partnerCarrying || (nearMega && Math.random() < (bot.botDifficulty === 'hard' ? 0.45 : 0.28)))) objective = mega
+    }
+    if (objective === target && bot.carried) objective = r?.delivery || r?.station || r?.tower || objective
+    else if (objective === target && list.length) objective = list.filter(o => !o.delivered && !o.carriedBy).sort((a, b) => dist(bot, a) - dist(bot, b))[0] || objective
+    else if (objective === target && r?.type === 'crown') objective = r.crown.owner && r.crown.owner !== bot.id ? this.players.get(r.crown.owner) : r.crown
+    else if (objective === target && r?.type === 'platform') objective = this.platforms.find(p => p.color === r.targetColor) || objective
     if (objective) { const dx = objective.x - bot.x, dz = objective.z - bot.z, d = Math.hypot(dx, dz) || 1; bot.input.x = dx / d; bot.input.z = dz / d; bot.input.interact = d < 1.8 }
     if (target && dist(bot, target) <= PRANK_RANGE && Math.random() < (bot.botDifficulty === 'hard' ? .35 : bot.botDifficulty === 'normal' ? .18 : .08)) { bot.input.prank = true; bot.input.prankType = MOTION_PRANKS[Math.floor(Math.random() * MOTION_PRANKS.length)] }
     if (Math.random() < .025) bot.input.jump = true
@@ -465,11 +792,19 @@ class Room {
   updateInteraction(player) {
     const r = this.round
     if (!r || !player.input.interact) return
+    const mega = r.mega
+    if (mega && !mega.delivered && dist(player, mega) <= MEGA_REACH && (!player.carried || player.carried === MEGA_ID)) {
+      player.input.interact = false
+      if (player.carried === MEGA_ID) this.releaseMega(player)
+      else this.joinMega(player)
+      return
+    }
+    if (player.carried === MEGA_ID) return
     if (r.type === 'banana') {
       if (player.carried) {
         if (dist(player, r.delivery) <= 2.2) {
           const item = r.bananas.find(b => b.id === player.carried)
-          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.roundScore++; player.contribution++ }
+          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.roundScore++; player.contribution++; this.bump(player, 'deliveries') }
           player.carried = ''
         }
       } else {
@@ -480,7 +815,7 @@ class Room {
       if (player.carried) {
         if (dist(player, r.station) <= 2.2) {
           const item = r.ingredients.find(o => o.id === player.carried)
-          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++ }
+          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++; this.bump(player, 'deliveries') }
           player.carried = ''
         }
       } else {
@@ -495,7 +830,7 @@ class Room {
       if (player.carried) {
         if (dist(player, r.tower) <= 2.2) {
           const item = r.balloons.find(o => o.id === player.carried)
-          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++ }
+          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++; this.bump(player, 'deliveries') }
           player.carried = ''
         }
       } else {
@@ -523,9 +858,10 @@ class Room {
         this.emitEvent('target', `안전 색상: ${this.platforms.find(p => p.color === r.targetColor)?.color ?? ''}`)
       }
       for (const p of this.connected()) {
+        if (p.respawning) continue
         const safe = this.platforms.some(tile => tile.color === r.targetColor && Math.hypot(p.x - tile.x, p.z - tile.z) < 1.9)
         if (safe) { p.roundScore += dt * 10; p.contribution = Math.floor(p.roundScore) }
-        else if (p.jumpY <= 0.01 && Math.hypot(p.x, p.z) > 1.2) { p.falls++; p.x = spawnFor(p.seat).x; p.z = spawnFor(p.seat).z; p.vx = 0; p.vz = 0 }
+        else if (p.jumpY <= 0.01 && Math.hypot(p.x, p.z) > 1.2) this.startRespawn(p, 'tile')
       }
     }
   }
@@ -534,9 +870,15 @@ class Room {
     if (this.phase === 'countdown' && now >= this.phaseEndsAt) { this.beginPlay(); return }
     if (this.phase === 'lobby' || this.phase === 'countdown' || this.phase === 'play') {
       const dt = TICK_MS / 1000
-      for (const p of this.connected()) { if (p.isBot) this.updateBotInput(p, now); this.updatePlayer(p, dt) }
+      for (const p of this.connected()) {
+        if (p.respawning) { if (now >= p.respawnAt) this.completeRespawn(p); continue }
+        if (p.isBot) this.updateBotInput(p, now)
+        this.updatePlayer(p, dt)
+      }
+      this.updateTether(dt)
+      if (this.phase === 'play') this.updateMega(dt)
       for (const a of this.connected()) for (const b of this.connected()) {
-        if (a.seat >= b.seat) continue
+        if (a.seat >= b.seat || a.respawning || b.respawning) continue
         const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz)
         if (d > 0 && d < 1.15) { const nx = dx / d, nz = dz / d; a.x -= nx * 0.025; a.z -= nz * 0.025; b.x += nx * 0.025; b.z += nz * 0.025; a.vx -= nx * 0.3; a.vz -= nz * 0.3; b.vx += nx * 0.3; b.vz += nz * 0.3 }
       }
@@ -562,17 +904,19 @@ class Room {
       round: def ? { ...def, timeLeft: this.phase === 'play' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : (this.phase === 'countdown' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : 0) } : null,
       phaseEndsAt: this.phaseEndsAt, hostId: this.hostId, players: this.allPlayers().map(p => playerSnapshot(p, viewerId)),
       objects: this.round ? this.serializedObjects() : {}, platforms: this.platforms,
+      pairs: this.pairs.map(pair => ({ a: pair.a, b: pair.b, length: Number((pair.length || 0).toFixed(2)), tension: Number((pair.tension || 0).toFixed(2)), rest: TETHER_REST, max: TETHER_MAX })),
       targetColor: this.targetColor, result: this.roundResult, event: this.event, ...extra,
     }
   }
   serializedObjects() {
     if (!this.round) return {}
+    const mega = this.round.mega ? { ...this.round.mega, carriers: [...this.round.mega.carriers] } : null
     const prankItems = this.round.prankItems?.filter(o => !o.consumed).map(o => ({ ...o })) ?? []
-    if (this.round.type === 'banana') return { type: 'banana', items: this.round.bananas.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), delivery: this.round.delivery, delivered: this.round.delivered, prankItems }
-    if (this.round.type === 'pizza') return { type: 'pizza', items: this.round.ingredients.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), station: this.round.station, delivered: this.round.delivered, total: this.round.total, prankItems }
-    if (this.round.type === 'crown') return { type: 'crown', crown: this.round.crown, prankItems }
-    if (this.round.type === 'balloon') return { type: 'balloon', items: this.round.balloons.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), tower: this.round.tower, delivered: this.round.delivered, prankItems }
-    return { type: 'platform', platforms: this.platforms, targetColor: this.round.targetColor, prankItems }
+    if (this.round.type === 'banana') return { type: 'banana', items: this.round.bananas.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), delivery: this.round.delivery, delivered: this.round.delivered, prankItems, mega }
+    if (this.round.type === 'pizza') return { type: 'pizza', items: this.round.ingredients.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), station: this.round.station, delivered: this.round.delivered, total: this.round.total, prankItems, mega }
+    if (this.round.type === 'crown') return { type: 'crown', crown: this.round.crown, prankItems, mega }
+    if (this.round.type === 'balloon') return { type: 'balloon', items: this.round.balloons.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), tower: this.round.tower, delivered: this.round.delivered, prankItems, mega }
+    return { type: 'platform', platforms: this.platforms, targetColor: this.round.targetColor, prankItems, mega }
   }
 }
 

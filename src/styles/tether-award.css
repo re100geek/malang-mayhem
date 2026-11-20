@@ -1,0 +1,46 @@
+/* 고무줄 짝꿍 · 2인 합동 운반 · 2초 리스폰 · 대환장 어워드 */
+.tether-line{display:block;font-size:11px;font-weight:800;line-height:1.45;color:rgba(255,249,232,.8);margin-top:2px}
+.tether-line:empty{display:none}
+.tether-line b{color:var(--cream)}
+.tether-line.warn{color:var(--yellow)}
+.tether-line.danger{color:#ff8a9a}
+.tether-line .mega-flag{display:inline-block;margin-left:6px;padding:2px 7px;border-radius:999px;background:rgba(255,207,75,.18);border:1px solid rgba(255,207,75,.5);color:var(--yellow);font-size:9px;letter-spacing:.06em}
+
+.respawn-hud{position:absolute;left:50%;top:38%;transform:translate(-50%,12px) scale(.92);display:flex;align-items:baseline;gap:9px;padding:14px 24px;border-radius:18px;background:rgba(23,21,47,.92);border:2px solid #ff5d6c;color:var(--cream);opacity:0;pointer-events:none;transition:opacity .16s,transform .16s;z-index:3}
+.respawn-hud.is-visible{opacity:1;transform:translate(-50%,0) scale(1)}
+.respawn-hud b{font-size:40px;line-height:1;color:#ff8a9a;font-variant-numeric:tabular-nums}
+.respawn-hud span{font-size:12px;font-weight:800;letter-spacing:.04em}
+
+.recap-list{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 16px}
+.recap-list:empty{display:none}
+.recap-row{display:flex;flex-direction:column;gap:2px;padding:9px 13px;border-radius:12px;background:rgba(255,249,232,.08);text-align:left;min-width:118px}
+.recap-row span{font-size:9px;letter-spacing:.12em;color:var(--yellow);font-weight:800}
+.recap-row b{font-size:13px}
+.recap-row em{font-style:normal;font-size:11px;color:rgba(255,249,232,.66)}
+
+.award-board{display:grid;grid-template-columns:repeat(auto-fit,minmax(208px,1fr));gap:9px;margin:16px 0 12px;text-align:left}
+.award-board:empty{display:none}
+.award-card{display:flex;gap:10px;align-items:flex-start;padding:12px 13px;border-radius:14px;background:linear-gradient(135deg,rgba(255,207,75,.18),rgba(255,93,143,.12));border:1px solid rgba(255,207,75,.35)}
+.award-card .award-emoji{font-size:24px;line-height:1}
+.award-card b{display:block;font-size:15px;color:var(--yellow)}
+.award-card .award-winner{display:block;font-size:13px;font-weight:800;color:var(--cream)}
+.award-card small{display:block;margin-top:3px;font-size:11px;line-height:1.4;color:rgba(255,249,232,.72)}
+.highlight-list{display:flex;flex-direction:column;gap:6px;margin:0 0 16px;text-align:left}
+.highlight-list:empty{display:none}
+.highlight-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:11px;background:rgba(255,249,232,.07)}
+.highlight-row span{font-size:9px;letter-spacing:.1em;font-weight:800;color:var(--mint);min-width:48px}
+.highlight-row p{flex:1;font-size:12px;margin:0}
+.highlight-row em{font-style:normal;font-size:11px;font-weight:800;color:var(--yellow)}
+
+@media(max-width:800px){
+  /* 모바일에서는 알림 토스트가 캐릭터 얼굴을 가리지 않도록 픽커 위쪽으로 비켜 둔다. */
+  body[data-screen="hud"] .toast{top:auto!important;bottom:calc(248px + var(--bottom))!important;max-width:calc(100% - 24px);font-size:12px;padding:10px 14px}
+  .event-toast{top:auto!important;bottom:calc(300px + var(--bottom))!important;left:12px!important;right:12px!important;max-width:none;text-align:center;font-size:12px;line-height:1.45;padding:10px 14px;transform:translateY(10px)!important}
+  .event-toast.is-visible{transform:translateY(0)!important}
+  .tether-line{font-size:10px}
+  .respawn-hud{top:42%;padding:10px 16px;border-radius:14px}
+  .respawn-hud b{font-size:30px}
+  .recap-row{min-width:calc(50% - 6px);flex:1}
+  .award-board{grid-template-columns:1fr}
+  .result-card,.final-card{max-height:86vh;overflow:auto}
+}

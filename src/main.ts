@@ -4,6 +4,8 @@ import './styles/invite.css'
 import './styles/solo-mode.css'
 import './styles/matte-art.css'
 import './styles/secret-mission.css'
+import './styles/tether-award.css'
+import './styles/actions.css'
 import { io, type Socket } from 'socket.io-client'
 import QRCode from 'qrcode'
 import { PartyGame, type PartyState } from './game/party-game'
@@ -30,14 +32,25 @@ document.title = 'MALANG MAYHEM — 말랑말랑 대환장 파티'
 ui.innerHTML = `
   <section class="screen boot-screen is-active" data-screen="boot"><div class="loader-mark">M</div><h1>MALANG MAYHEM</h1><p>말랑말랑 대환장 파티</p><div class="loading-line"><i></i></div><small>젤리 월드 준비 중...</small></section>
   <section class="screen title-screen" data-screen="title"><div class="title-copy"><div class="eyebrow">MALANG MAYHEM / PARTY PROTOCOL 01</div><h1>MALANG<br><em>MAYHEM</em></h1><p>친구들이랑 말랑하게 부딪히고, 웃기게 우승하세요.</p><div class="title-actions"><button class="primary" data-action="create">방 만들기 <span>→</span></button><button data-action="single">혼자 플레이 <span>1인 모드</span></button><button data-action="join">방 코드로 참가</button></div><div class="single-options"><label for="bot-difficulty"><span>봇 난이도</span><select id="bot-difficulty"><option value="easy">쉽게 · 봇 1명</option><option value="normal" selected>보통 · 봇 2명</option><option value="hard">어렵게 · 봇 3명</option></select></label></div><div class="join-row"><input id="join-code" maxlength="6" placeholder="6자리 방 코드" autocomplete="off"><button data-action="join-code">입장</button></div><div class="profile-card"><label>닉네임 <input id="nickname" maxlength="14" value="${saved.name || '말랑이'}"></label><div><span>내 색상</span><div class="color-picks">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div></div></div><div class="title-badge"><b>5</b><span>ROUNDS</span><small>1–8 PLAYERS</small></div><div class="title-blob blob-a"></div><div class="title-blob blob-b"></div></section>
-  <section class="screen lobby-screen" data-screen="lobby"><div class="lobby-head"><div class="room-meta"><span class="eyebrow">ROOM CODE</span><div class="room-line"><button class="room-code" data-action="copy">------ <small>복사</small></button><span class="room-live" id="room-live">● LIVE</span></div></div><div class="lobby-rounds"><b>5 ROUNDS</b><span>개인전 3 · 협동전 2</span></div></div><div class="lobby-body"><div><h2>대기실 <span id="lobby-count">0/8</span></h2><p class="muted">친구에게 방 코드를 공유하고 모두 준비하면 출발!</p><div class="player-list" id="player-list"></div></div><aside class="rules-card"><span class="eyebrow">NEXT UP</span><h3>미끄덩<br>바나나 배달</h3><p>바나나를 들고 배달존까지 미끄러져 가세요. 제일 많이 배달한 사람이 웃음 포인트를 가져갑니다.</p><div class="mini-stats"><span>75 SEC</span><span>SOLO</span><span>WASD + E</span></div><button class="primary wide" data-action="ready" id="ready-btn">준비 완료</button><button class="text-btn" data-action="start" id="start-btn">방장으로 게임 시작</button></aside><div class="invite-panel"><div><span class="eyebrow">INVITE FRIENDS</span><h3>친구를 바로 초대</h3><p>링크를 누르거나 QR을 스캔하면 방 코드가 자동으로 채워져요.</p><input id="invite-link" readonly><div class="invite-actions"><button class="primary" data-action="share">공유하기</button><button data-action="copy-invite">링크 복사</button><button data-action="toggle-qr">QR 보기</button></div></div><canvas id="qr-code" width="156" height="156" aria-label="방 초대 QR 코드"></canvas></div></div><button class="leave-link" data-action="leave">← 타이틀로 돌아가기</button></section>
-  <section class="screen hud-screen" data-screen="hud"><div class="hud-top"><div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker"><button data-prank="headbutt">Q 박치기</button><button data-prank="bonk">1 꿀밤</button><button data-prank="tackle">2 태클</button><button data-prank="hug">3 포옹</button></div></div><div class="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round" id="jump-btn">점프</button><button class="action-round pink" id="interact-btn">E 잡기</button><button class="action-round prank" id="prank-btn">장난</button></div></section>
-  <section class="screen result-screen" data-screen="result"><div class="result-card"><span class="eyebrow" id="result-kicker">ROUND COMPLETE</span><h2 id="result-title">라운드 결과</h2><p id="result-summary">말랑한 결과가 도착했어요.</p><div id="result-list" class="result-list"></div><button class="primary" data-action="result-close">다음 라운드로 →</button></div></section>
-  <section class="screen final-screen" data-screen="final"><div class="confetti confetti-a"></div><div class="final-card"><span class="eyebrow">MALANG CHAMPIONSHIP</span><h2>최종 시상식</h2><p>오늘의 젤리 챔피언은...</p><div id="final-winner" class="winner-name">공동 우승!</div><div id="best-prankster" class="prank-award">최고의 장난꾸러기 — 아직 미정</div><div id="final-list" class="final-list"></div><button class="primary" data-action="rematch">다시 말랑하게!</button><button class="text-btn" data-action="leave">타이틀로</button></div></section>
+  <section class="screen lobby-screen" data-screen="lobby"><div class="lobby-head"><div class="room-meta"><span class="eyebrow">ROOM CODE</span><div class="room-line"><button class="room-code" data-action="copy">------ <small>복사</small></button><span class="room-live" id="room-live">● LIVE</span></div></div><div class="lobby-rounds"><b>5 ROUNDS</b><span>개인전 3 · 협동전 2</span></div></div><div class="lobby-body"><div><h2>대기실 <span id="lobby-count">0/8</span></h2><p class="muted">친구에게 방 코드를 공유하고 모두 준비하면 출발!</p><div class="lobby-rename"><label for="lobby-nickname">닉네임</label><input id="lobby-nickname" maxlength="14" autocomplete="off" placeholder="닉네임"><button data-action="rename">변경</button><div class="lobby-colors">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div><div class="player-list" id="player-list"></div></div><aside class="rules-card"><span class="eyebrow">NEXT UP</span><h3>미끄덩<br>바나나 배달</h3><p>바나나를 들고 배달존까지 미끄러져 가세요. 제일 많이 배달한 사람이 웃음 포인트를 가져갑니다.</p><div class="mini-stats"><span>75 SEC</span><span>SOLO</span><span>WASD + E</span></div><button class="primary wide" data-action="ready" id="ready-btn">준비 완료</button><button class="text-btn" data-action="start" id="start-btn">방장으로 게임 시작</button></aside><div class="invite-panel"><div><span class="eyebrow">INVITE FRIENDS</span><h3>친구를 바로 초대</h3><p>링크를 누르거나 QR을 스캔하면 방 코드가 자동으로 채워져요.</p><input id="invite-link" readonly><div class="invite-actions"><button class="primary" data-action="share">공유하기</button><button data-action="copy-invite">링크 복사</button><button data-action="toggle-qr">QR 보기</button></div></div><canvas id="qr-code" width="156" height="156" aria-label="방 초대 QR 코드"></canvas></div></div><button class="leave-link" data-action="leave">← 타이틀로 돌아가기</button></section>
+  <section class="screen hud-screen" data-screen="hud"><div class="hud-top"><div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker"><button data-prank="headbutt">Q 박치기</button><button data-prank="bonk">1 꿀밤</button><button data-prank="tackle">2 태클</button><button data-prank="hug">3 포옹</button></div></div><div class="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round" id="jump-btn">점프</button><button class="action-round pink" id="interact-btn">E 잡기</button><button class="action-round prank" id="prank-btn">장난</button></div></section>
+  <section class="screen result-screen" data-screen="result"><div class="result-card"><span class="eyebrow" id="result-kicker">ROUND COMPLETE</span><h2 id="result-title">라운드 결과</h2><p id="result-summary">말랑한 결과가 도착했어요.</p><div id="recap-list" class="recap-list"></div><div id="result-list" class="result-list"></div><button class="primary" data-action="result-close">다음 라운드로 →</button></div></section>
+  <section class="screen final-screen" data-screen="final"><div class="confetti confetti-a"></div><div class="final-card"><span class="eyebrow">MALANG CHAMPIONSHIP</span><h2>최종 시상식</h2><p>오늘의 젤리 챔피언은...</p><div id="final-winner" class="winner-name">공동 우승!</div><div id="best-prankster" class="prank-award">최고의 장난꾸러기 — 아직 미정</div><div class="award-board" id="award-board"></div><div class="highlight-list" id="highlight-list"></div><div id="final-list" class="final-list"></div><button class="primary" data-action="rematch">다시 말랑하게!</button><button class="text-btn" data-action="leave">타이틀로</button></div></section>
   <div class="toast" id="toast"></div>
+  <div class="respawn-hud" id="respawn-hud"></div>
 `
 
-function show(name: string) { document.querySelectorAll<HTMLElement>('[data-screen]').forEach(el => el.classList.toggle('is-active', el.dataset.screen === name)) }
+function show(name: string) {
+  document.body.dataset.screen = name
+  document.querySelectorAll<HTMLElement>('[data-screen]').forEach(el => el.classList.toggle('is-active', el.dataset.screen === name))
+  // 모바일 인게임에서는 토스트가 캐릭터 얼굴을 가리지 않게 픽커 위로 비켜 둔다(CSS 특이도 문제를 피해 인라인으로 지정).
+  const toastEl = document.getElementById('toast')
+  if (toastEl) {
+    const mobileHud = name === 'hud' && innerWidth <= 800
+    toastEl.style.top = mobileHud ? 'auto' : ''
+    toastEl.style.bottom = mobileHud ? 'calc(248px + env(safe-area-inset-bottom,0px))' : ''
+  }
+}
 function profile() { const name = (document.getElementById('nickname') as HTMLInputElement).value.trim() || '말랑이'; const selected = document.querySelector<HTMLElement>('.color-pick.is-selected'); return { name, colorIndex: Number(selected?.dataset.color || 0) } }
 function persist() { const p = profile(); localStorage.setItem('malang-mayhem', JSON.stringify({ ...saved, ...p, resumeToken, room: roomCode })) }
 function toast(message: string) { const el = document.getElementById('toast')!; el.textContent = message; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2300) }
@@ -49,7 +62,7 @@ function connect(code: string, single = false) {
   socket.on('connect_error', () => toast('서버에 연결할 수 없어요. 게임 서버가 실행 중인지 확인하세요.'))
   socket.on('welcome', message => { if (message.marker !== 'malang-mayhem-v1') return; roomCode = message.code; resumeToken = message.resumeToken; me = message.player; game.setPlayerId(me.id); persist(); show('lobby'); toast(message.resumed ? '다시 접속했어요!' : `${me.name}님, 입장 완료!`); if (single) setTimeout(() => socket?.emit('start_single', botDifficulty), 180) })
   socket.on('state', next => { state = next; game.setState(next); renderState() })
-  socket.on('event', event => { toast(event.text); addPrankLog(event.text, event.type); game.showPrankEffect(event.itemType || (event.type === 'shatter' ? 'shatter' : event.type === 'grab' ? 'grab' : event.type === 'prank' ? 'shockwave' : 'reverse'), event.x || 0, event.z || 0); if (event.type === 'round_result') show('result'); if (event.type === 'final') show('final') })
+  socket.on('event', event => { toast(event.text); addPrankLog(event.text, event.type); game.showPrankEffect(effectFor(event), event.x || 0, event.z || 0); if (event.type === 'round_result') show('result'); if (event.type === 'final') show('final') })
   socket.on('room_error', err => { toast(err.message || '방에 들어갈 수 없어요.'); socket?.disconnect() })
 }
 function randomCode() { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') }
@@ -82,6 +95,16 @@ function renderState() {
   document.getElementById('room-live')!.textContent = `● LIVE · ${state.players.filter(p => p.connected).length}/8`
   list.innerHTML = state.players.map(p => `<div class="player-row ${p.id === me?.id ? 'mine' : ''}"><i style="--player:${p.color}"></i><span>${escapeHtml(p.name)}</span>${p.host ? '<b class="host-tag">HOST</b>' : ''}<em>${p.ready ? 'READY' : '대기 중'}</em></div>`).join('')
   const host = state.hostId === me?.id
+  const myName = state.players.find(p => p.id === me?.id)?.name || ''
+  const lobbyName = document.getElementById('lobby-nickname') as HTMLInputElement | null
+  if (lobbyName && document.activeElement !== lobbyName) lobbyName.value = myName
+  const titleName = document.getElementById('nickname') as HTMLInputElement | null
+  if (titleName && document.activeElement !== titleName && myName) titleName.value = myName
+  const lobbyColors = document.querySelectorAll<HTMLElement>('.lobby-colors .color-pick')
+  if (lobbyColors.length) {
+    const mineColor = state.players.find(p => p.id === me?.id)?.color
+    lobbyColors.forEach(el => el.classList.toggle('is-selected', me ? COLORS[Number(el.dataset.color)] === mineColor : el.classList.contains('is-selected')))
+  }
   const readyBtn = document.getElementById('ready-btn') as HTMLButtonElement
   const startBtn = document.getElementById('start-btn') as HTMLButtonElement
   readyBtn.textContent = me && state.players.find(p => p.id === me.id)?.ready ? '준비 취소' : '준비 완료'
@@ -105,6 +128,32 @@ function renderState() {
   }
   document.getElementById('score-stack')!.innerHTML = state.players.filter(p => p.connected).sort((a, b) => b.score - a.score).map(p => `<div class="score-row ${p.id === me?.id ? 'mine' : ''}"><i style="--player:${p.color}"></i><span>${escapeHtml(p.name)}</span><b>${p.score}</b></div>`).join('')
   const mine = state.players.find(p => p.id === me?.id)
+  const partner = mine?.partnerId ? state.players.find(p => p.id === mine.partnerId) : null
+  const tetherLine = document.getElementById('tether-line')
+  if (tetherLine) {
+    const pair = (state.pairs || []).find(p => p.a === mine?.id || p.b === mine?.id)
+    const mega = (state.objects || {}).mega
+    const megaFlag = mega && !mega.delivered ? `<span class="mega-flag">${mega.carriers?.length >= 2 ? `${mega.name} 짝꿍 운반 중` : mega.carriers?.length === 1 ? `${mega.name} 혼자 끄는 중` : `${mega.name} · 2명이서 E`}</span>` : mega?.delivered ? '<span class="mega-flag">황금 소품 배달 완료</span>' : ''
+    if (partner) {
+      const length = pair?.length ?? Math.hypot((mine?.x || 0) - partner.x, (mine?.z || 0) - partner.z)
+      const tension = pair?.tension ?? 0
+      tetherLine.className = `tether-line ${tension > 0.6 ? 'danger' : tension > 0.25 ? 'warn' : 'ok'}`
+      tetherLine.innerHTML = `🪢 짝꿍 <b>${escapeHtml(partner.name)}</b> · 고무줄 ${length.toFixed(1)}m ${tension > 0.6 ? '팽팽!' : tension > 0.25 ? '늘어남' : '여유'}${megaFlag}`
+    } else if (state.round?.mode === 'coop') {
+      tetherLine.className = 'tether-line warn'
+      tetherLine.innerHTML = `🪢 짝꿍 없이 혼자 뛰는 중${megaFlag}`
+    } else {
+      tetherLine.className = 'tether-line'
+      tetherLine.innerHTML = megaFlag
+    }
+  }
+  const respawnEl = document.getElementById('respawn-hud')
+  if (respawnEl) {
+    if (mine?.respawning) {
+      respawnEl.innerHTML = `<b>${Math.max(0, (mine.respawnIn || 0) / 1000).toFixed(1)}</b><span>초 뒤 아레나 복귀</span>`
+      respawnEl.classList.add('is-visible')
+    } else respawnEl.classList.remove('is-visible')
+  }
   const mission = mine?.secretMission
   const missionEl = document.getElementById('secret-mission')
   if (missionEl) missionEl.innerHTML = mission ? `<span class="eyebrow">SECRET PRANK</span><b>${escapeHtml(mission.text)}</b><small>달성 시 +250P · ${mine?.missionProgress || 0}/${mission.target}</small>` : '<span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small>'
@@ -121,13 +170,41 @@ function renderState() {
   ].join('')
   document.body.classList.toggle('inked', statuses.ink > 0)
   const prankButton = document.getElementById('prank-btn') as HTMLButtonElement | null
-  if (prankButton) { const cooldown = mine?.prankCooldown || 0; prankButton.disabled = cooldown > 0; prankButton.dataset.cooldown = cooldown > 0 ? `${(cooldown / 1000).toFixed(1)}s` : '' }
+  const cooldowns = (mine?.cooldowns || {}) as Record<string, number>
+  document.querySelectorAll<HTMLButtonElement>('[data-prank]').forEach(button => {
+    const type = button.dataset.prank || 'headbutt'
+    const remain = cooldowns[type] || 0
+    button.classList.toggle('is-cooling', remain > 0)
+    button.dataset.cooldown = remain > 0 ? `${(remain / 1000).toFixed(1)}s` : ''
+    button.textContent = remain > 0 ? `${PRANK_LABELS[type]} ${(remain / 1000).toFixed(1)}s` : PRANK_LABELS[type]
+  })
+  if (prankButton) {
+    const remain = cooldowns[input.prankType] || 0
+    prankButton.disabled = remain > 0
+    prankButton.classList.toggle('is-cooling', remain > 0)
+    const label = PRANK_NAMES[input.prankType] || '장난'
+    prankButton.innerHTML = remain > 0 ? `${label}<span class="cooldown-badge">${(remain / 1000).toFixed(1)}s</span>` : label
+  }
+  const interactButton = document.getElementById('interact-btn')
+  if (interactButton) {
+    const remain = cooldowns.grab || 0
+    interactButton.classList.toggle('is-cooling', remain > 0)
+    interactButton.innerHTML = remain > 0 ? `E 잡기<span class="cooldown-badge">${(remain / 1000).toFixed(1)}s</span>` : 'E 잡기'
+  }
+  const jumpButton = document.getElementById('jump-btn')
+  if (jumpButton) {
+    const remain = cooldowns.jump || 0
+    jumpButton.classList.toggle('is-cooling', remain > 0)
+    jumpButton.innerHTML = remain > 0 ? `점프<span class="cooldown-badge">${(remain / 1000).toFixed(1)}s</span>` : '점프'
+  }
 }
 function renderResult(next: PartyState) {
   const result = next.result
   if (!result) return
   document.getElementById('result-title')!.textContent = result.title
-  document.getElementById('result-summary')!.textContent = result.mode === 'coop' ? `공동 목표 달성률 ${(result.progress * 100).toFixed(0)}% · 기여도 보너스 포함` : '이번 라운드에서 가장 말랑했던 순서'
+  document.getElementById('result-summary')!.textContent = result.mode === 'coop' ? `공동 목표 달성률 ${(result.progress * 100).toFixed(0)}% · 고무줄 짝꿍 합동 운반 보너스 포함` : '이번 라운드에서 가장 말랑했던 순서'
+  const recap = document.getElementById('recap-list')
+  if (recap) recap.innerHTML = (result.recap || []).map((row: any) => `<div class="recap-row"><span>${escapeHtml(row.label)}</span><b>${escapeHtml(row.name || '')}</b><em>${escapeHtml(row.value || '')}</em></div>`).join('')
   document.getElementById('result-list')!.innerHTML = result.results.map((r: any, i: number) => `<div class="result-row"><strong>${i + 1}</strong><i style="--player:${r.color}"></i><span>${escapeHtml(r.name)}${r.missionComplete ? ' · 비밀 미션 달성' : ''}</span><b>+${r.points}</b><em>${r.total} P</em></div>`).join('')
 }
 function renderFinal(next: PartyState) {
@@ -137,24 +214,61 @@ function renderFinal(next: PartyState) {
   document.getElementById('final-winner')!.textContent = winners.length > 1 ? '공동 우승!' : rankings[0]?.name || '말랑 챔피언'
   const prankster = result?.bestPrankster
   document.getElementById('best-prankster')!.textContent = prankster ? `최고의 장난꾸러기 — ${prankster.name} (${prankster.prankSuccesses}회)` : '최고의 장난꾸러기 — 아직 미정'
+  const board = document.getElementById('award-board')
+  if (board) board.innerHTML = (result?.awards || []).map((award: any) => `<div class="award-card"><span class="award-emoji">${award.emoji || '🏅'}</span><div><b>${escapeHtml(award.title)}</b><span class="award-winner">${(award.names || []).map((name: string) => escapeHtml(name)).join(' · ')}</span><small>${escapeHtml(award.metric || '')}${award.tagline ? ` — ${escapeHtml(award.tagline)}` : ''}</small></div></div>`).join('')
+  const highlights = document.getElementById('highlight-list')
+  if (highlights) highlights.innerHTML = (result?.highlights || []).map((row: any) => `<div class="highlight-row"><span>${escapeHtml(row.label)}</span><p>${escapeHtml(row.text)}</p><em>${escapeHtml(row.value || '')}</em></div>`).join('')
   document.getElementById('final-list')!.innerHTML = rankings.map((r: any) => `<div class="final-row"><span>${r.rank}</span><i style="--player:${r.color}"></i><b>${escapeHtml(r.name)}</b><strong>${r.score}</strong></div>`).join('')
 }
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c)) }
+const PRANK_NAMES: Record<string, string> = { headbutt: '박치기', bonk: '꿀밤', tackle: '태클', hug: '포옹' }
+const PRANK_LABELS: Record<string, string> = { headbutt: 'Q 박치기', bonk: '1 꿀밤', tackle: '2 태클', hug: '3 포옹' }
+/** 장난 선택 + (trigger=true면) 즉시 발동. 1/2/3 단축키와 픽커/모바일 버튼이 같은 경로를 쓴다. */
+function selectPrank(type: string, trigger = false) {
+  input.prankType = type
+  document.querySelectorAll<HTMLElement>('[data-prank]').forEach(el => el.classList.toggle('is-selected', el.dataset.prank === type))
+  if (!trigger) return
+  input.prank = true
+  game.hintAction('Bonk')
+  flushInput()
+}
+function rename() {
+  const field = document.getElementById('lobby-nickname') as HTMLInputElement | null
+  const value = (field?.value || '').trim().slice(0, 14)
+  if (!value) { toast('닉네임을 입력해 주세요.'); field?.focus(); return }
+  if (!socket?.connected || state?.phase !== 'lobby') { toast('대기실에서만 바꿀 수 있어요.'); return }
+  const colorIndex = Number(document.querySelector<HTMLElement>('.color-pick.is-selected')?.dataset.color ?? 0)
+  socket.emit('update_profile', { name: value, colorIndex })
+  const title = document.getElementById('nickname') as HTMLInputElement | null
+  if (title) title.value = value
+  persist()
+  toast(`닉네임을 ${value}(으)로 바꿨어요!`)
+}
+const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop' }
+function effectFor(event: any) { return event.itemType || EVENT_EFFECTS[event.type] || 'reverse' }
 function leave() { socket?.disconnect(); socket = null; state = null; me = null; show('title'); toast('다음 파티를 기다리고 있어요.') }
-function addPrankLog(message: string, type: string) { if (!['prank', 'prank_item', 'crown'].includes(type)) return; const log = document.getElementById('prank-log'); if (!log) return; const line = document.createElement('div'); line.textContent = message; log.prepend(line); while (log.children.length > 3) log.lastElementChild?.remove() }
+function addPrankLog(message: string, type: string) { if (!['prank', 'prank_item', 'crown', 'mega', 'mega_grab', 'tether', 'fall', 'respawn'].includes(type)) return; const log = document.getElementById('prank-log'); if (!log) return; const line = document.createElement('div'); line.textContent = message; log.prepend(line); while (log.children.length > 3) log.lastElementChild?.remove() }
 function sendInput(now: number) { if (!socket?.connected || !me) return; if (now - lastInputAt < 45) return; lastInputAt = now; socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
 function flushInput() { if (!socket?.connected || !me) return; lastInputAt = performance.now(); socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
 
 ui.addEventListener('click', e => {
   const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action], .color-pick')
   if (!target) return
-  if (target.classList.contains('color-pick')) { document.querySelectorAll('.color-pick').forEach(el => el.classList.remove('is-selected')); target.classList.add('is-selected'); persist(); return }
+  if (target.classList.contains('color-pick')) {
+    const wasSelected = target.classList.contains('is-selected')
+    document.querySelectorAll('.color-pick').forEach(el => el.classList.remove('is-selected'))
+    document.querySelectorAll(`.color-pick[data-color="${target.dataset.color}"]`).forEach(el => el.classList.add('is-selected'))
+    persist()
+    if (!wasSelected && socket?.connected && state?.phase === 'lobby') socket.emit('update_profile', { name: profile().name, colorIndex: Number(target.dataset.color) })
+    return
+  }
   const action = target.dataset.action
   if (action === 'create') connect(randomCode())
   if (action === 'single') connect(randomCode(), true)
   if (action === 'join') (document.getElementById('join-code') as HTMLInputElement).focus()
   if (action === 'join-code') { const code = (document.getElementById('join-code') as HTMLInputElement).value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length !== 6) toast('방 코드는 6자리예요.'); else connect(code) }
   if (action === 'ready') socket?.emit('toggle_ready')
+  if (action === 'rename') rename()
   if (action === 'start') socket?.emit('start_match')
   if (action === 'rematch') socket?.emit('rematch')
   if (action === 'result-close') { if (state?.phase === 'result') show('hud') }
@@ -163,11 +277,13 @@ ui.addEventListener('click', e => {
   if (action === 'share') void shareInvite()
   if (action === 'toggle-qr') document.querySelector('.invite-panel')?.classList.toggle('qr-open')
 })
-ui.addEventListener('click', e => { const target = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-prank]'); if (!target) return; input.prankType = target.dataset.prank || 'headbutt'; document.querySelectorAll('[data-prank]').forEach(el => el.classList.toggle('is-selected', el === target)); toast(`장난 선택: ${target.textContent}`) })
+ui.addEventListener('click', e => { const target = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-prank]'); if (!target) return; selectPrank(target.dataset.prank || 'headbutt', true) })
 const initialColor = Number(saved.colorIndex || 0)
 document.querySelectorAll<HTMLElement>('.color-pick')[initialColor]?.classList.add('is-selected')
 const codeInput = document.getElementById('join-code') as HTMLInputElement
 codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') document.querySelector<HTMLElement>('[data-action="join-code"]')?.click() })
+const lobbyNameInput = document.getElementById('lobby-nickname') as HTMLInputElement
+lobbyNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rename() } })
 const roomFromUrl = new URLSearchParams(location.search).get('room')?.toUpperCase().replace(/[^A-Z0-9]/g, '') || ''
 if (roomFromUrl.length === 6) { codeInput.value = roomFromUrl; document.getElementById('nickname')?.addEventListener('keydown', e => { if (e.key === 'Enter') connect(roomFromUrl) }); toast('초대 링크의 방 코드가 채워졌어요.') }
 
@@ -176,10 +292,10 @@ addEventListener('keydown', e => {
   keys.add(e.code)
   if (e.code === 'Space') { input.jump = true; e.preventDefault(); flushInput() }
   if (e.code === 'KeyE') { input.interact = true; e.preventDefault(); flushInput() }
-  if (e.code === 'KeyQ') { input.prank = true; input.prankType = 'headbutt'; game.hintAction('Bonk'); e.preventDefault(); flushInput() }
-  if (e.code === 'Digit1') input.prankType = 'bonk'
-  if (e.code === 'Digit2') input.prankType = 'tackle'
-  if (e.code === 'Digit3') input.prankType = 'hug'
+  if (e.code === 'KeyQ') { selectPrank('headbutt', true); e.preventDefault() }
+  if (e.code === 'Digit1') { selectPrank('bonk', true); e.preventDefault() }
+  if (e.code === 'Digit2') { selectPrank('tackle', true); e.preventDefault() }
+  if (e.code === 'Digit3') { selectPrank('hug', true); e.preventDefault() }
 })
 addEventListener('keyup', e => keys.delete(e.code))
 function updateKeyboard() { const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')); const z = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')); if (x || z) { const len = Math.hypot(x, z) || 1; input.x = x / len; input.z = z / len } else if (!document.getElementById('stick')?.classList.contains('active')) { input.x = 0; input.z = 0 } }
@@ -192,10 +308,20 @@ function setupTouch() {
   stick.addEventListener('pointerup', () => { pointer = 0; stick.classList.remove('active'); knob.style.transform = ''; input.x = input.z = 0 })
   document.getElementById('jump-btn')!.addEventListener('pointerdown', () => { input.jump = true; flushInput() })
   document.getElementById('interact-btn')!.addEventListener('pointerdown', () => { input.interact = true; flushInput() })
-  document.getElementById('prank-btn')!.addEventListener('pointerdown', () => { input.prank = true; game.hintAction('Bonk'); flushInput() })
+  document.getElementById('prank-btn')!.addEventListener('pointerdown', () => selectPrank(input.prankType, true))
 }
 setupTouch()
 
 void game.load().then(() => { document.querySelector('.loading-line i')?.setAttribute('style', 'transform:scaleX(1)'); setTimeout(() => show('title'), 450) }).catch(() => show('title'))
-function frame(now: number) { const dt = Math.min(.05, (now - lastFrame) / 1000); lastFrame = now; updateKeyboard(); game.setInput(input.x, input.z); sendInput(now); game.render(dt); requestAnimationFrame(frame) }
+// `?debug` 검수용: 렌더 프레임률과 무관하게 입력을 직접 보내 캐릭터를 정확히 움직인다.
+let debugMove: { x: number; z: number } | null = null
+if (new URLSearchParams(location.search).has('debug')) {
+  (window as unknown as Record<string, unknown>).__mmInput = (next: Partial<typeof input>) => {
+    if (next.x !== undefined || next.z !== undefined) debugMove = { x: next.x ?? 0, z: next.z ?? 0 }
+    Object.assign(input, next)
+    flushInput()
+    return { ...input }
+  }
+}
+function frame(now: number) { const dt = Math.min(.05, (now - lastFrame) / 1000); lastFrame = now; updateKeyboard(); if (debugMove) { input.x = debugMove.x; input.z = debugMove.z } game.setInput(input.x, input.z); sendInput(now); game.render(dt); requestAnimationFrame(frame) }
 requestAnimationFrame(frame)
