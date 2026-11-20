@@ -335,6 +335,8 @@ class Room {
   }
   setLobby(reason = '') {
     this.phase = 'lobby'; this.roundIndex = -1; this.phaseEndsAt = 0; this.round = null; this.roundResult = null
+    // 대기실에서 본 라운드 순서가 그대로 경기에 쓰이도록, 새 매치 준비 시점에 한 번만 뽑는다.
+    this.plan = makeRoundPlan()
     for (const [id, p] of this.players) if (p.isBot) this.players.delete(id)
     this.pairs = []
     for (const p of this.players.values()) { p.ready = false; p.score = 0; p.soloScore = 0; p.contribution = 0; p.roundScore = 0; p.carried = ''; p.falls = 0; p.prankCount = 0; p.prankSuccesses = 0; p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }; p.secretMission = null; p.missionProgress = 0; p.missionComplete = false; p.grabbedBy = ''; p.grabTargetId = ''; p.partnerId = ''; p.respawning = false; p.respawnAt = 0; p.respawns = 0; p.megaDeliveries = 0; p.stats = emptyStats() }
@@ -350,7 +352,6 @@ class Room {
     if (this.phase !== 'lobby' || player.id !== this.hostId || this.humans().length < 1) return false
     if (this.humans().length === 1) this.addBots(difficulty)
     for (const p of this.players.values()) { p.stats = emptyStats(); p.roundStats = emptyStats(); p.respawns = 0; p.megaDeliveries = 0; p.falls = 0; p.prankSuccesses = 0; p.prankCount = 0 }
-    this.plan = makeRoundPlan()
     this.roundIndex = ENV_START_ROUND >= 0 && ENV_START_ROUND < this.plan.length ? ENV_START_ROUND : 0
     this.startCountdown()
     return true
