@@ -55,7 +55,7 @@ function dampAngle(current: number, target: number, rate: number, dt: number): n
   return current + delta * (1 - Math.exp(-rate * dt))
 }
 
-function makeLabelTexture(name: string, color: string): THREE.CanvasTexture {
+function makeLabelTexture(name: string, color: string, ready: boolean): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = 512
   canvas.height = 128
@@ -70,7 +70,14 @@ function makeLabelTexture(name: string, color: string): THREE.CanvasTexture {
   ctx.font = '800 46px sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(name, 256, 66)
+  ctx.fillText(name, ready ? 193 : 256, 66, ready ? 326 : 450)
+  if (ready) {
+    ctx.fillStyle = '#6df1c1'
+    ctx.beginPath(); ctx.roundRect(367, 40, 111, 52, 18); ctx.fill()
+    ctx.fillStyle = '#17152f'
+    ctx.font = '800 27px sans-serif'
+    ctx.fillText('READY', 422, 66)
+  }
   const tex = new THREE.CanvasTexture(canvas)
   tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 4
@@ -107,6 +114,7 @@ export class Character {
   readonly body = new THREE.Group()
   readonly model: THREE.Object3D
   readonly label: THREE.Sprite
+  private readonly tintedMaterials = new Set<THREE.MeshStandardMaterial>()
   private readonly shadow = makeContactShadow()
   private readonly bones = new Map<BoneKey, THREE.Object3D>()
   private readonly mixer: THREE.AnimationMixer
@@ -129,7 +137,7 @@ export class Character {
     this.body.add(this.model)
     this.root.add(this.body, this.shadow)
 
-    this.label = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeLabelTexture(name, color), transparent: true, depthTest: false }))
+    this.label = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeLabelTexture(name, color, false), transparent: true, depthTest: false }))
     this.label.scale.set(2.1, 0.525, 1)
     this.label.position.set(0, CHARACTER_HEIGHT + 0.62, 0)
     this.root.add(this.label)
@@ -185,12 +193,19 @@ export class Character {
       const mapped = materials.map(material => {
         if (!material || !material.name?.includes('Humanoid_Mint')) return material
         const cloned = material.clone()
+        this.tintedMaterials.add(cloned)
         cloned.color.set(color)
         cloned.roughness = Math.min(1, (cloned.roughness ?? 0.5) + 0.06)
         return cloned
       })
       mesh.material = Array.isArray(mesh.material) ? mapped : mapped[0]
     })
+  }
+
+  setProfile(name: string, color: string, ready: boolean): void {
+    for (const material of this.tintedMaterials) material.color.set(color)
+    this.label.material.map?.dispose()
+    this.label.material.map = makeLabelTexture(name, color, ready)
   }
 
   setLabelVisible(visible: boolean): void {
@@ -391,6 +406,7 @@ export class Character {
 
   dispose(): void {
     this.mixer.stopAllAction()
+    for (const material of this.tintedMaterials) material.dispose()
     this.root.removeFromParent()
     this.label.material.map?.dispose()
     this.label.material.dispose()

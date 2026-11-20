@@ -17,6 +17,7 @@ export type SweeperObject = { angle: number; speed: number; radius: number; warn
 export type TailObject = { id: string; color: string }
 export type PartyState = {
   code: string; hostId: string; phase: string; roundIndex: number; round: { title: string; short: string; mode: string; timeLeft: number; duration: number } | null
+  plan?: { title: string; short?: string; mode: string; duration?: number }[]
   players: Player[]; objects: any; platforms: any[]; targetColor: string; result: any; event?: any; pairs?: TetherPair[]
 }
 
@@ -30,6 +31,8 @@ type View = {
   vx: number
   vz: number
   color: string
+  name: string
+  ready: boolean
 }
 
 type Effect = { object: THREE.Object3D; life: number; ttl: number }
@@ -64,6 +67,10 @@ export class PartyGame {
   private debug = false
   private showcaseItems: { kind: string; label: string; position: THREE.Vector3 }[] = []
   private propsMode = false
+  private readonly practiceBoundary = new THREE.Mesh(
+    new THREE.RingGeometry(7.91, 8, 96),
+    new THREE.MeshBasicMaterial({ color: '#fff2c4', side: THREE.DoubleSide, transparent: true, opacity: 0.8 }),
+  )
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
@@ -79,6 +86,10 @@ export class PartyGame {
     this.camera.position.set(0, 8.4, 15)
     this.camera.lookAt(0, 1.2, 0)
     this.createWorld()
+    this.practiceBoundary.rotation.x = -Math.PI / 2
+    this.practiceBoundary.position.y = 0.07
+    this.practiceBoundary.visible = false
+    this.root.add(this.practiceBoundary)
     this.resize()
     addEventListener('resize', () => this.resize())
     this.debug = new URLSearchParams(location.search).has('debug')
@@ -192,14 +203,28 @@ export class PartyGame {
   setInput(x: number, z: number): void { this.localInput.x = x; this.localInput.z = z }
   get playerPosition(): { x: number; z: number } { return { x: this.localPosition.x, z: this.localPosition.z } }
 
+  clearState(): void {
+    this.state = null
+    this.me = ''
+    this.lastPhase = ''
+    this.practiceBoundary.visible = false
+    this.clearProps()
+    for (const view of this.views.values()) view.character.dispose()
+    this.views.clear()
+  }
+
   setState(state: PartyState): void {
     this.state = state
+    const lobby = state.phase === 'lobby'
+    this.practiceBoundary.visible = lobby
     if (state.phase !== this.lastPhase) {
       this.lastPhase = state.phase
       this.clearProps()
     }
     const seen = new Set<string>()
-    for (const player of state.players) {
+    const dummy: Player | undefined = lobby ? state.objects?.practiceDummy : undefined
+    const players = dummy ? [...state.players, dummy] : state.players
+    for (const player of players) {
       seen.add(player.id)
       let view = this.views.get(player.id)
       if (!view) {
@@ -215,7 +240,12 @@ export class PartyGame {
       view.spin = player.status?.spin ?? 0
       const knock = (player.status.knockdown ?? 0) > 0 || (player.status.stagger ?? 0) > 0
       view.character.setKnocked(knock)
-      view.character.setLabelVisible(player.connected && player.id !== this.me)
+      const ready = lobby && player.ready
+      if (view.name !== player.name || view.color !== player.color || view.ready !== ready) {
+        view.character.setProfile(player.name, player.color, ready)
+        Object.assign(view, { name: player.name, color: player.color, ready })
+      }
+      view.character.setLabelVisible(player.connected && (lobby || player.id !== this.me))
       if (player.id === this.me) {
         if (this.localPosition.lengthSq() === 0 || state.phase === 'lobby' || state.phase === 'countdown') this.localPosition.set(player.x, player.jumpY, player.z)
       }
@@ -235,7 +265,7 @@ export class PartyGame {
       : this.fallbackCharacter(player.color, player.name)
     character.root.position.set(player.x, player.jumpY, player.z)
     this.root.add(character.root)
-    return { character, target: new THREE.Vector3(player.x, player.jumpY, player.z), speed: 0, y: player.jumpY, action: 'Idle', spin: 0, vx: 0, vz: 0, color: player.color }
+    return { character, target: new THREE.Vector3(player.x, player.jumpY, player.z), speed: 0, y: player.jumpY, action: 'Idle', spin: 0, vx: 0, vz: 0, color: player.color, name: player.name, ready: false }
   }
 
   /** GLB를 못 읽었을 때만 쓰는 단순 대체 캐릭터. */
@@ -262,7 +292,12 @@ export class PartyGame {
   }
 
   private clearProps(): void {
-    for (const object of this.props.values()) object.removeFromParent()
+    for (const [key, object] of this.props) {
+      object.removeFromParent()
+      if (key.startsWith('practice:')) {
+        object.traverse(child => { if (child instanceof THREE.Mesh) child.geometry.dispose() })
+      }
+    }
     this.props.clear()
     for (const object of this.tails.values()) object.removeFromParent()
     this.tails.clear()
@@ -329,6 +364,7 @@ export class PartyGame {
       const carrier = state.players.find(p => p.id === item.carriedBy)
       const x = carrier ? carrier.x : item.x
       const z = carrier ? carrier.z : item.z
+      object.visible = true
       object.position.set(x, carrier ? 1.85 : y, z)
       object.rotation.y += 0.02
       return object
@@ -366,6 +402,10 @@ export class PartyGame {
     this.syncTails(state, objects.tails as TailObject[] | null, keep)
     for (const [key, object] of this.props) {
       if (keep.has(key)) continue
+      if (objects.type === 'practice' && key.startsWith('practice:')) {
+        object.visible = false
+        continue
+      }
       object.removeFromParent()
       this.props.delete(key)
     }
@@ -622,6 +662,16 @@ export class PartyGame {
     }
     const phase = this.state?.phase
     const me = this.views.get(this.me)
+    if (phase === 'lobby' && me) {
+      const position = me.character.root.position
+      const portrait = this.camera.aspect < 0.9
+      tmpVec.set(position.x, 8.5, position.z + (portrait ? 10 : 11.5))
+      tmpLook.set(position.x, 1, position.z - 1)
+      this.camera.position.lerp(tmpVec, 1 - Math.exp(-9 * dt))
+      this.lookTarget.lerp(tmpLook, 1 - Math.exp(-9 * dt))
+      this.camera.lookAt(this.lookTarget)
+      return
+    }
     if (phase === 'play' && me) {
       const portrait = this.camera.aspect < 0.9
       const distance = portrait ? 9.2 : 9.8
@@ -677,6 +727,7 @@ export class PartyGame {
       const fromServer = this.state?.players.find(player => player.id === id)
       return {
         id,
+        ready: view.ready,
         pos: [p.x, p.y, p.z].map(v => Number(v.toFixed(2))),
         server: fromServer ? [fromServer.x, fromServer.jumpY, fromServer.z].map(v => Number(v.toFixed(2))) : null,
         screen: [Math.round((screen.x * 0.5 + 0.5) * innerWidth), Math.round((-screen.y * 0.5 + 0.5) * innerHeight)],

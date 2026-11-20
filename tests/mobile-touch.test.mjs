@@ -53,6 +53,8 @@ async function openPhone() {
   await page.goto(`http://127.0.0.1:${port}/?debug`)
   await page.waitForSelector('[data-screen="title"].is-active', { timeout: 40000 })
   await page.tap('[data-action="single"]')
+  await page.waitForSelector('[data-screen="lobby"].is-active')
+  await page.tap('[data-action="start"]')
   await page.waitForSelector('[data-screen="hud"].is-active', { timeout: 30000 })
   await page.waitForFunction(() => window.__mmClient?.snapshot().phase === 'play', null, { timeout: 30000 })
   const cdp = await context.newCDPSession(page)

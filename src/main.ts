@@ -6,6 +6,8 @@ import './styles/matte-art.css'
 import './styles/secret-mission.css'
 import './styles/tether-award.css'
 import './styles/actions.css'
+import './styles/warmup.css'
+import { warmupPanel } from './game/warmup-panel'
 import { io, type Socket } from 'socket.io-client'
 import QRCode from 'qrcode'
 import { PartyGame, type PartyState } from './game/party-game'
@@ -26,13 +28,14 @@ let qrRenderedCode = ''
 
 const canvas = document.getElementById('game') as HTMLCanvasElement
 const ui = document.getElementById('ui')!
+document.body.classList.toggle('touch-input', navigator.maxTouchPoints > 0)
 const game = new PartyGame(canvas)
 
 document.title = 'MALANG MAYHEM — 말랑말랑 대환장 파티'
 ui.innerHTML = `
   <section class="screen boot-screen is-active" data-screen="boot"><div class="loader-mark">M</div><h1>MALANG MAYHEM</h1><p>말랑말랑 대환장 파티</p><div class="loading-line"><i></i></div><small>젤리 월드 준비 중...</small></section>
-  <section class="screen title-screen" data-screen="title"><div class="title-copy"><div class="eyebrow">MALANG MAYHEM / PARTY PROTOCOL 01</div><h1>MALANG<br><em>MAYHEM</em></h1><p>친구들이랑 말랑하게 부딪히고, 웃기게 우승하세요.</p><div class="title-actions"><button class="primary" data-action="create">방 만들기 <span>→</span></button><button data-action="single">혼자 플레이 <span>1인 모드</span></button><button data-action="join">방 코드로 참가</button></div><div class="single-options"><label for="bot-difficulty"><span>봇 난이도</span><select id="bot-difficulty"><option value="easy">쉽게 · 봇 1명</option><option value="normal" selected>보통 · 봇 2명</option><option value="hard">어렵게 · 봇 3명</option></select></label></div><div class="join-row"><input id="join-code" maxlength="6" placeholder="6자리 방 코드" autocomplete="off"><button data-action="join-code">입장</button></div><div class="profile-card"><label>닉네임 <input id="nickname" maxlength="14" value="${saved.name || '말랑이'}"></label><div><span>내 색상</span><div class="color-picks">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div></div></div><div class="title-badge"><b>5</b><span>ROUNDS</span><small>1–8 PLAYERS</small></div><div class="title-blob blob-a"></div><div class="title-blob blob-b"></div></section>
-  <section class="screen lobby-screen" data-screen="lobby"><div class="lobby-head"><div class="room-meta"><span class="eyebrow">ROOM CODE</span><div class="room-line"><button class="room-code" data-action="copy">------ <small>복사</small></button><span class="room-live" id="room-live">● LIVE</span></div></div><div class="lobby-rounds"><b>5 ROUNDS</b><span>개인전 3 · 협동전 2</span></div></div><div class="lobby-body"><div><h2>대기실 <span id="lobby-count">0/8</span></h2><p class="muted">친구에게 방 코드를 공유하고 모두 준비하면 출발!</p><div class="lobby-rename"><label for="lobby-nickname">닉네임</label><input id="lobby-nickname" maxlength="14" autocomplete="off" placeholder="닉네임"><button data-action="rename">변경</button><div class="lobby-colors">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div><div class="player-list" id="player-list"></div></div><aside class="rules-card"><span class="eyebrow">NEXT UP</span><h3 id="next-title">미끄덩 바나나 배달</h3><p id="next-desc">바나나를 들고 배달존까지 미끄러져 가세요. 제일 많이 배달한 사람이 웃음 포인트를 가져갑니다.</p><div class="mini-stats" id="next-stats"><span>75 SEC</span><span>SOLO</span><span>WASD + E</span></div><button class="primary wide" data-action="ready" id="ready-btn">준비 완료</button><button class="text-btn" data-action="start" id="start-btn">방장으로 게임 시작</button></aside><div class="invite-panel"><div><span class="eyebrow">INVITE FRIENDS</span><h3>친구를 바로 초대</h3><p>링크를 누르거나 QR을 스캔하면 방 코드가 자동으로 채워져요.</p><input id="invite-link" readonly><div class="invite-actions"><button class="primary" data-action="share">공유하기</button><button data-action="copy-invite">링크 복사</button><button data-action="toggle-qr">QR 보기</button></div></div><canvas id="qr-code" width="156" height="156" aria-label="방 초대 QR 코드"></canvas></div></div><button class="leave-link" data-action="leave">← 타이틀로 돌아가기</button></section>
+  <section class="screen title-screen" data-screen="title"><div class="title-copy"><div class="eyebrow">MALANG MAYHEM / PARTY PROTOCOL 01</div><h1>MALANG<br><em>MAYHEM</em></h1><p>친구들이랑 말랑하게 부딪히고, 웃기게 우승하세요.</p><div class="title-actions"><button class="primary" data-action="create">방 만들기 <span>→</span></button><button data-action="single">혼자 플레이 <span>1인 모드</span></button><button data-action="join">방 코드로 참가</button></div><div class="single-options"><label for="bot-difficulty"><span>봇 난이도</span><select id="bot-difficulty"><option value="easy">쉽게 · 봇 1명</option><option value="normal" selected>보통 · 봇 2명</option><option value="hard">어렵게 · 봇 3명</option></select></label></div><div class="join-row"><input id="join-code" maxlength="6" placeholder="6자리 방 코드" autocomplete="off"><button data-action="join-code">입장</button></div><div class="profile-card"><label>닉네임 <input id="nickname" maxlength="14" value="${escapeHtml(String(saved.name || '말랑이'))}"></label><div><span>내 색상</span><div class="color-picks">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div></div></div><div class="title-badge"><b>5</b><span>ROUNDS</span><small>1–8 PLAYERS</small></div><div class="title-blob blob-a"></div><div class="title-blob blob-b"></div></section>
+  ${warmupPanel(COLORS, COLOR_NAMES)}
   <section class="screen hud-screen" data-screen="hud"><div class="hud-top"><div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker" id="prank-picker"><button data-prank="headbutt"><span class="pk-key">Q</span><span class="pk-name">박치기</span><i class="pk-cd"></i></button><button data-prank="bonk"><span class="pk-key">1</span><span class="pk-name">꿀밤</span><i class="pk-cd"></i></button><button data-prank="tackle"><span class="pk-key">2</span><span class="pk-name">태클</span><i class="pk-cd"></i></button><button data-prank="hug"><span class="pk-key">3</span><span class="pk-name">포옹</span><i class="pk-cd"></i></button></div></div><div class="mobile-controls" id="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round jump" id="jump-btn" type="button" data-label="점프"><span class="ar-icon">⬆</span><span class="ar-label">점프</span><i class="cd-veil"></i></button><button class="action-round pink grab" id="interact-btn" type="button" data-label="잡기"><span class="ar-icon">✋</span><span class="ar-label">잡기</span><i class="cd-veil"></i></button><button class="action-round prank" id="prank-btn" type="button"><span class="ar-icon">😈</span><span class="ar-label" id="prank-btn-label" data-prank-label="박치기">박치기</span><i class="cd-veil"></i></button></div></section>
   <section class="screen result-screen" data-screen="result"><div class="result-card"><span class="eyebrow" id="result-kicker">ROUND COMPLETE</span><h2 id="result-title">라운드 결과</h2><p id="result-summary">말랑한 결과가 도착했어요.</p><div id="recap-list" class="recap-list"></div><div id="result-list" class="result-list"></div><button class="primary" data-action="result-close">다음 라운드로 →</button></div></section>
   <section class="screen final-screen" data-screen="final"><div class="confetti confetti-a"></div><div class="final-card"><span class="eyebrow">MALANG CHAMPIONSHIP</span><h2>최종 시상식</h2><p>오늘의 젤리 챔피언은...</p><div id="final-winner" class="winner-name">공동 우승!</div><div id="best-prankster" class="prank-award">최고의 장난꾸러기 — 아직 미정</div><div class="award-board" id="award-board"></div><div class="highlight-list" id="highlight-list"></div><div id="final-list" class="final-list"></div><button class="primary" data-action="rematch">다시 말랑하게!</button><button class="text-btn" data-action="leave">타이틀로</button></div></section>
@@ -42,7 +45,7 @@ ui.innerHTML = `
 
 function show(name: string) {
   document.body.dataset.screen = name
-  document.querySelectorAll<HTMLElement>('[data-screen]').forEach(el => el.classList.toggle('is-active', el.dataset.screen === name))
+  document.querySelectorAll<HTMLElement>('[data-screen]').forEach(el => el.classList.toggle('is-active', el.dataset.screen === name || (name === 'lobby' && el.dataset.screen === 'hud')))
   // 모바일 인게임에서는 토스트가 캐릭터 얼굴을 가리지 않게 픽커 위로 비켜 둔다(CSS 특이도 문제를 피해 인라인으로 지정).
   const toastEl = document.getElementById('toast')
   if (toastEl) {
@@ -54,14 +57,22 @@ function show(name: string) {
 function profile() { const name = (document.getElementById('nickname') as HTMLInputElement).value.trim() || '말랑이'; const selected = document.querySelector<HTMLElement>('.color-pick.is-selected'); return { name, colorIndex: Number(selected?.dataset.color || 0) } }
 function persist() { const p = profile(); localStorage.setItem('malang-mayhem', JSON.stringify({ ...saved, ...p, resumeToken, room: roomCode })) }
 function toast(message: string) { const el = document.getElementById('toast')!; el.textContent = message; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2300) }
-function connect(code: string, single = false) {
+function connect(code: string) {
   roomCode = code || randomCode(); persist()
   socket?.disconnect()
   const botDifficulty = (document.getElementById('bot-difficulty') as HTMLSelectElement | null)?.value || 'normal'
   socket = io({ path: '/socket.io', transports: ['websocket', 'polling'], auth: { room: roomCode, resumeToken, botDifficulty, ...profile() } })
   socket.on('connect_error', () => toast('서버에 연결할 수 없어요. 게임 서버가 실행 중인지 확인하세요.'))
-  socket.on('welcome', message => { if (message.marker !== 'malang-mayhem-v1') return; roomCode = message.code; resumeToken = message.resumeToken; me = message.player; game.setPlayerId(me.id); persist(); show('lobby'); toast(message.resumed ? '다시 접속했어요!' : `${me.name}님, 입장 완료!`); if (single) setTimeout(() => socket?.emit('start_single', botDifficulty), 180) })
-  socket.on('state', next => { state = next; game.setState(next); renderState() })
+  socket.on('welcome', message => { if (message.marker !== 'malang-mayhem-v1') return; roomCode = message.code; resumeToken = message.resumeToken; me = message.player; game.setPlayerId(me.id); persist(); show('lobby'); toast(message.resumed ? '다시 접속했어요!' : `${me.name}님, 입장 완료!`) })
+  socket.on('state', next => {
+    if (state?.phase !== next.phase && (state?.phase === 'lobby' || next.phase === 'lobby')) {
+      for (const type of Object.keys(localCds)) delete localCds[type]
+      document.querySelector('.lobby-details')?.removeAttribute('open')
+    }
+    state = next
+    game.setState(next)
+    renderState()
+  })
   socket.on('event', event => { toast(event.text); addPrankLog(event.text, event.type); game.showPrankEffect(effectFor(event), event.x || 0, event.z || 0); if (event.type === 'round_result') show('result'); if (event.type === 'final') show('final') })
   socket.on('room_error', err => { toast(err.message || '방에 들어갈 수 없어요.'); socket?.disconnect() })
 }
@@ -92,20 +103,16 @@ function renderState() {
   void renderInvite(state.code)
   const list = document.getElementById('player-list')!
   document.getElementById('lobby-count')!.textContent = `${state.players.filter(p => p.connected).length}/8`
-  document.getElementById('room-live')!.textContent = `● LIVE · ${state.players.filter(p => p.connected).length}/8`
   list.innerHTML = state.players.map(p => `<div class="player-row ${p.id === me?.id ? 'mine' : ''}"><i style="--player:${p.color}"></i><span>${escapeHtml(p.name)}</span>${p.host ? '<b class="host-tag">HOST</b>' : ''}<em>${p.ready ? 'READY' : '대기 중'}</em></div>`).join('')
-  // 대기실 NEXT UP 카드는 이번 매치 1라운드(랜덤 셔플 결과)를 그대로 보여 준다.
-  const nextRound = (state as any).plan?.[0]
+  const nextRound = state.plan?.[0]
   if (nextRound) {
-    const nextTitle = document.getElementById('next-title')
-    const nextDesc = document.getElementById('next-desc')
-    const nextStats = document.getElementById('next-stats')
-    if (nextTitle) nextTitle.textContent = nextRound.title
-    if (nextDesc) nextDesc.textContent = `${nextRound.short} ${nextRound.mode === 'coop' ? '· 짝꿍과 함께 협동전!' : '· 개인전, 5라운드 중 첫 판!'}`
-    if (nextStats) nextStats.innerHTML = `<span>${Math.round((nextRound.duration || 75) / 1)} SEC</span><span>${nextRound.mode === 'coop' ? 'CO-OP' : 'SOLO'}</span><span>${nextRound.mode === 'coop' ? 'PAIR + E' : 'WASD + E'}</span>`
+    document.getElementById('next-title')!.textContent = nextRound.title
+    document.getElementById('next-desc')!.textContent = nextRound.short || ''
+    document.getElementById('next-stats')!.textContent = `${nextRound.mode === 'coop' ? '협동전' : '개인전'} · ${nextRound.duration ?? 75}초`
   }
   const host = state.hostId === me?.id
-  const myName = state.players.find(p => p.id === me?.id)?.name || ''
+  const mine = state.players.find(p => p.id === me?.id)
+  const myName = mine?.name || ''
   const lobbyName = document.getElementById('lobby-nickname') as HTMLInputElement | null
   if (lobbyName && document.activeElement !== lobbyName) lobbyName.value = myName
   const titleName = document.getElementById('nickname') as HTMLInputElement | null
@@ -117,10 +124,12 @@ function renderState() {
   }
   const readyBtn = document.getElementById('ready-btn') as HTMLButtonElement
   const startBtn = document.getElementById('start-btn') as HTMLButtonElement
-  readyBtn.textContent = me && state.players.find(p => p.id === me.id)?.ready ? '준비 취소' : '준비 완료'
+  readyBtn.textContent = mine?.ready ? '준비 취소' : '준비 완료'
+  readyBtn.setAttribute('aria-pressed', String(Boolean(mine?.ready)))
+  updateCooldownState(state, mine)
   startBtn.disabled = !host || state.players.filter(p => p.connected).length < 1
-  startBtn.textContent = host ? (state.players.filter(p => p.connected).length === 1 ? '1인 모드로 시작 · 봇 참가' : '방장으로 게임 시작') : '방장이 시작할 때까지 대기'
-  if (state.phase === 'lobby') { show('lobby'); return }
+  startBtn.textContent = host ? (state.players.filter(p => p.connected).length === 1 ? '1인 시작' : '게임 시작') : '방장이 시작할 때까지 대기'
+  if (state.phase === 'lobby') { show('lobby'); paintCooldowns(); return }
   if (state.phase === 'result') { renderResult(state); show('result'); return }
   if (state.phase === 'final') { renderFinal(state); show('final'); return }
   show('hud')
@@ -138,7 +147,6 @@ function renderState() {
     document.getElementById('progress-text')!.textContent = survivalRound ? 'SURVIVE!' : `${current} / ${total}`
   }
   document.getElementById('score-stack')!.innerHTML = state.players.filter(p => p.connected).sort((a, b) => b.score - a.score).map(p => `<div class="score-row ${p.id === me?.id ? 'mine' : ''}"><i style="--player:${p.color}"></i><span>${escapeHtml(p.name)}</span><b>${p.score}</b></div>`).join('')
-  const mine = state.players.find(p => p.id === me?.id)
   const partner = mine?.partnerId ? state.players.find(p => p.id === mine.partnerId) : null
   const tetherLine = document.getElementById('tether-line')
   if (tetherLine) {
@@ -180,12 +188,14 @@ function renderState() {
     statuses.reverse > 0 ? `<span class="status-chip reverse">반전 ${Math.ceil(statuses.reverse / 1000)}s</span>` : '',
   ].join('')
   document.body.classList.toggle('inked', statuses.ink > 0)
+  paintCooldowns()
+  renderObjective(state, mine)
+}
+function updateCooldownState(state: PartyState, mine: PartyState['players'][number] | undefined) {
   // 서버가 준 쿨타임 표를 기준으로, 클라이언트에서도 같은 시간만큼 즉시 잠근다.
   cooldownTable = { ...FALLBACK_CD_MS, ...((state as any).cooldownMs || {}) }
   serverRemain = { ...((mine?.cooldowns || {}) as Record<string, number>) }
   meRespawning = Boolean(mine?.respawning)
-  paintCooldowns()
-  renderObjective(state, mine)
 }
 function renderResult(next: PartyState) {
   const result = next.result
@@ -354,7 +364,7 @@ function rename() {
 }
 const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop', bomb_boom: 'boom', bomb_pass: 'bomb', sweeper_hit: 'sweeper', sweeper_assist: 'sweeper', sweeper_warn: 'sweeper', tail_steal: 'tail', tail_bonus: 'tail' }
 function effectFor(event: any) { return event.itemType || EVENT_EFFECTS[event.type] || 'reverse' }
-function leave() { socket?.disconnect(); socket = null; state = null; me = null; show('title'); toast('다음 파티를 기다리고 있어요.') }
+function leave() { socket?.disconnect(); socket = null; state = null; me = null; keys.clear(); game.clearState(); show('title'); toast('다음 파티를 기다리고 있어요.') }
 function addPrankLog(message: string, type: string) { if (!['prank', 'prank_item', 'crown', 'mega', 'mega_grab', 'tether', 'fall', 'respawn'].includes(type)) return; const log = document.getElementById('prank-log'); if (!log) return; const line = document.createElement('div'); line.textContent = message; log.prepend(line); while (log.children.length > 3) log.lastElementChild?.remove() }
 function sendInput(now: number) { if (!socket?.connected || !me) return; if (now - lastInputAt < 45) return; lastInputAt = now; socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
 function flushInput() { if (!socket?.connected || !me) return; lastInputAt = performance.now(); socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
@@ -372,7 +382,7 @@ ui.addEventListener('click', e => {
   }
   const action = target.dataset.action
   if (action === 'create') connect(randomCode())
-  if (action === 'single') connect(randomCode(), true)
+  if (action === 'single') connect(randomCode())
   if (action === 'join') (document.getElementById('join-code') as HTMLInputElement).focus()
   if (action === 'join-code') { const code = (document.getElementById('join-code') as HTMLInputElement).value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length !== 6) toast('방 코드는 6자리예요.'); else connect(code) }
   if (action === 'ready') socket?.emit('toggle_ready')
@@ -383,7 +393,10 @@ ui.addEventListener('click', e => {
   if (action === 'leave') leave()
   if (action === 'copy' || action === 'copy-invite') void copyInvite()
   if (action === 'share') void shareInvite()
-  if (action === 'toggle-qr') document.querySelector('.invite-panel')?.classList.toggle('qr-open')
+  if (action === 'toggle-qr') {
+    const open = document.querySelector('.invite-panel')?.classList.toggle('qr-open')
+    target.setAttribute('aria-expanded', String(Boolean(open)))
+  }
 })
 const initialColor = Number(saved.colorIndex || 0)
 document.querySelectorAll<HTMLElement>('.color-pick')[initialColor]?.classList.add('is-selected')
@@ -395,7 +408,8 @@ const roomFromUrl = new URLSearchParams(location.search).get('room')?.toUpperCas
 if (roomFromUrl.length === 6) { codeInput.value = roomFromUrl; document.getElementById('nickname')?.addEventListener('keydown', e => { if (e.key === 'Enter') connect(roomFromUrl) }); toast('초대 링크의 방 코드가 채워졌어요.') }
 
 addEventListener('keydown', e => {
-  if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return
+  if ((e.target as HTMLElement)?.closest?.('input, textarea, select, summary') || !['lobby', 'hud'].includes(document.body.dataset.screen || '')) return
+  if (e.code === 'Space' && (e.target as HTMLElement)?.closest?.('button')) return
   keys.add(e.code)
   if (e.code === 'Space') { e.preventDefault(); pressAction('jump') }
   if (e.code === 'KeyE') { e.preventDefault(); pressAction('interact') }
@@ -405,6 +419,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Digit3') { selectPrank('hug', true); e.preventDefault() }
 })
 addEventListener('keyup', e => keys.delete(e.code))
+addEventListener('blur', () => keys.clear())
 function updateKeyboard() { const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')); const z = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')); if (x || z) { const len = Math.hypot(x, z) || 1; input.x = x / len; input.z = z / len } else if (!document.getElementById('stick')?.classList.contains('active')) { input.x = 0; input.z = 0 } }
 /**
  * 모바일 입력.
@@ -536,6 +551,7 @@ if (new URLSearchParams(location.search).has('debug')) {
       objective: document.getElementById('objective-text')?.textContent,
       progress: document.getElementById('progress-text')?.textContent,
     }),
+    world: () => game.debugSnapshot(),
     cast: (type: string) => { selectPrank(type, true); return Math.round(remainingMs(type)) },
     lock: (type: string, ms: number) => { localCds[type] = performance.now() + Math.max(0, ms); paintCooldowns(); return Math.round(remainingMs(type)) },
   };
@@ -554,7 +570,7 @@ function frame(now: number) {
   game.setInput(input.x, input.z)
   sendInput(now)
   // 스냅샷이 띄엄띄엄 와도 쿨타임 초가 끊기지 않게 프레임에서도 다시 그린다.
-  if (now - lastCooldownPaint > 110) { lastCooldownPaint = now; if (state?.phase === 'play' || state?.phase === 'countdown') paintCooldowns() }
+  if (now - lastCooldownPaint > 110) { lastCooldownPaint = now; if (state?.phase === 'play' || state?.phase === 'countdown' || state?.phase === 'lobby') paintCooldowns() }
   game.render(dt)
   requestAnimationFrame(frame)
 }
