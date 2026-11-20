@@ -3,5 +3,5 @@ html,body{background:#dbe5e1;color:var(--cream)}
 .boot-screen{background:#dbe5e1;color:#26343b}.boot-screen p{color:#a66a58}.loader-mark{background:#9bd8c2;box-shadow:5px 5px 0 #52646a}.loading-line{background:#b8c8c7}.loading-line i{background:#e5b95d}
 .title-screen{background:#dbe5e1}.title-screen:before{color:#6d8186}.title-copy h1{color:#fffdf2;text-shadow:5px 6px 0 #52646a}.title-copy h1 em{color:#e5b95d}.title-copy p{color:#4b5c62}.single-options{color:#4f636a}.title-badge{background:#e5b95d;box-shadow:5px 6px 0 #52646a}.blob-a,.blob-b{display:none}
 .lobby-screen,.result-screen,.final-screen{background:#35464c}.rules-card,.result-card,.final-card{background:#53676d;box-shadow:7px 8px 0 rgba(38,52,59,.35)}
-.hud-top .round-pill,.objective,.score-row,.event-toast,.controls-hint,.status-chip{background:rgba(38,52,59,.88)}.round-pill{border-color:rgba(255,253,242,.28)}
+.hud-top .round-pill,.objective,.score-row,.controls-hint,.status-chip{background:rgba(38,52,59,.88)}.round-pill{border-color:rgba(255,253,242,.28)}
 .progress-track{background:#52646a}.progress-track i{background:#e5b95d}.mobile-controls .action-round{box-shadow:4px 5px 0 #52646a}

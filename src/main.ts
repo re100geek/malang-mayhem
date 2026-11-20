@@ -8,6 +8,10 @@ import './styles/tether-award.css'
 import './styles/actions.css'
 import './styles/warmup.css'
 import './styles/match-update.css'
+import './styles/round-intro.css'
+import './styles/play-notifications.css'
+import { IntroOverlay, introMarkup } from './game/intro-overlay'
+import { PlayCallouts } from './game/play-callouts'
 import { newRoundObjective } from './game/round-feedback'
 import { audioButton, GameAudio } from './game/game-audio'
 import { matchSelect, matchSettings } from './game/match-settings'
@@ -46,27 +50,33 @@ ui.innerHTML = `
     ${matchSettings('title')}
   </div><div class="join-row"><input id="join-code" maxlength="6" placeholder="6자리 방 코드" autocomplete="off"><button data-action="join-code">입장</button></div><div class="profile-card"><label>닉네임 <input id="nickname" maxlength="14" value="${escapeHtml(String(saved.name || '말랑이'))}"></label><div><span>내 색상</span><div class="color-picks">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div></div></div><div class="title-badge"><b id="title-round-badge">5</b><span>ROUNDS</span><small>1–8 PLAYERS</small></div><div class="title-blob blob-a"></div><div class="title-blob blob-b"></div></section>
   ${warmupPanel(COLORS, COLOR_NAMES)}
-  <section class="screen hud-screen" data-screen="hud"><div class="hud-top">${audioButton}<div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker" id="prank-picker"><button data-prank="headbutt"><span class="pk-key">Q</span><span class="pk-name">박치기</span><i class="pk-cd"></i></button><button data-prank="bonk"><span class="pk-key">1</span><span class="pk-name">꿀밤</span><i class="pk-cd"></i></button><button data-prank="tackle"><span class="pk-key">2</span><span class="pk-name">태클</span><i class="pk-cd"></i></button><button data-prank="hug"><span class="pk-key">3</span><span class="pk-name">포옹</span><i class="pk-cd"></i></button></div></div><div class="mobile-controls" id="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round jump" id="jump-btn" type="button" data-label="점프"><span class="ar-icon">⬆</span><span class="ar-label">점프</span><i class="cd-veil"></i></button><button class="action-round pink grab" id="interact-btn" type="button" data-label="잡기"><span class="ar-icon">✋</span><span class="ar-label">잡기</span><i class="cd-veil"></i></button><button class="action-round prank" id="prank-btn" type="button"><span class="ar-icon">😈</span><span class="ar-label" id="prank-btn-label" data-prank-label="박치기">박치기</span><i class="cd-veil"></i></button></div></section>
+  ${introMarkup}
+  <section class="screen hud-screen" data-screen="hud"><div class="hud-top">${audioButton}<div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="status-stack" id="status-stack"></div><div class="hud-side"><div class="hud-notifications"><div class="respawn-hud" id="respawn-hud"></div><div class="play-callout" id="play-callout" role="status"></div><div class="toast" id="game-toast" role="status"></div><div class="prank-log" id="prank-log"></div></div><div class="score-stack" id="score-stack"></div></div></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker" id="prank-picker"><button data-prank="headbutt"><span class="pk-key">Q</span><span class="pk-name">박치기</span><i class="pk-cd"></i></button><button data-prank="bonk"><span class="pk-key">1</span><span class="pk-name">꿀밤</span><i class="pk-cd"></i></button><button data-prank="tackle"><span class="pk-key">2</span><span class="pk-name">태클</span><i class="pk-cd"></i></button><button data-prank="hug"><span class="pk-key">3</span><span class="pk-name">포옹</span><i class="pk-cd"></i></button></div></div><div class="mobile-controls" id="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round jump" id="jump-btn" type="button" data-label="점프"><span class="ar-icon">⬆</span><span class="ar-label">점프</span><i class="cd-veil"></i></button><button class="action-round pink grab" id="interact-btn" type="button" data-label="잡기"><span class="ar-icon">✋</span><span class="ar-label">잡기</span><i class="cd-veil"></i></button><button class="action-round prank" id="prank-btn" type="button"><span class="ar-icon">😈</span><span class="ar-label" id="prank-btn-label" data-prank-label="박치기">박치기</span><i class="cd-veil"></i></button></div></section>
   <section class="screen result-screen" data-screen="result"><div class="result-card"><span class="eyebrow" id="result-kicker">ROUND COMPLETE</span><h2 id="result-title">라운드 결과</h2><p id="result-summary">말랑한 결과가 도착했어요.</p><div id="recap-list" class="recap-list"></div><div class="next-round-banner"><span id="result-next-heading"></span><strong id="result-next-title"></strong></div><h3 class="result-table-heading">누적 순위</h3><div class="result-columns"><span>이번 라운드</span><span>누적 점수</span></div><div id="result-list" class="result-list"></div></div></section>
   <section class="screen final-screen" data-screen="final"><div class="confetti confetti-a"></div><div class="final-card"><span class="eyebrow">MALANG CHAMPIONSHIP</span><h2>대환장 어워드</h2><p>오늘의 젤리 챔피언은...</p><div id="final-winner" class="winner-name">공동 우승!</div><div id="best-prankster" class="prank-award">최고의 장난꾸러기 — 아직 미정</div><div class="award-board" id="award-board"></div><div class="highlight-list" id="highlight-list"></div><div id="final-list" class="final-list"></div><button class="primary" data-action="rematch">다시 하기</button><p id="rematch-hint" hidden>방장이 다시 하기를 누르면 새 매치가 시작돼요.</p><button class="text-btn" data-action="leave">타이틀로</button></div></section>
   <div class="toast" id="toast"></div>
-  <div class="respawn-hud" id="respawn-hud"></div>
 `
 
+const intro = new IntroOverlay(() => audio.play('match_opening'))
+const callouts = new PlayCallouts(document.getElementById('play-callout')!)
+
 function show(name: string) {
+  if (document.body.dataset.screen === name) return
   document.body.dataset.screen = name
-  document.querySelectorAll<HTMLElement>('[data-screen]').forEach(el => el.classList.toggle('is-active', el.dataset.screen === name || (name === 'lobby' && el.dataset.screen === 'hud')))
-  // 모바일 인게임에서는 토스트가 캐릭터 얼굴을 가리지 않게 픽커 위로 비켜 둔다(CSS 특이도 문제를 피해 인라인으로 지정).
-  const toastEl = document.getElementById('toast')
-  if (toastEl) {
-    const mobileHud = name === 'hud' && innerWidth <= 800
-    toastEl.style.top = mobileHud ? 'auto' : ''
-    toastEl.style.bottom = mobileHud ? 'calc(248px + env(safe-area-inset-bottom,0px))' : ''
-  }
+  document.querySelectorAll<HTMLElement>('.screen[data-screen]').forEach(el =>
+    el.classList.toggle('is-active', el.dataset.screen === name || (name === 'lobby' && el.dataset.screen === 'hud')))
 }
 function profile() { const name = (document.getElementById('nickname') as HTMLInputElement).value.trim() || '말랑이'; const selected = document.querySelector<HTMLElement>('.color-pick.is-selected'); return { name, colorIndex: Number(selected?.dataset.color || 0) } }
 function persist() { const p = profile(); localStorage.setItem('malang-mayhem', JSON.stringify({ ...saved, ...p, muted: audio.muted, resumeToken, room: roomCode })) }
-function toast(message: string) { const el = document.getElementById('toast')!; el.textContent = message; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2300) }
+const toastTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>()
+function toast(message: string) {
+  const id = document.body.dataset.screen === 'hud' ? 'game-toast' : 'toast'
+  const el = document.getElementById(id)!
+  el.textContent = message
+  el.classList.add('is-visible')
+  clearTimeout(toastTimers.get(el))
+  toastTimers.set(el, setTimeout(() => el.classList.remove('is-visible'), 2300))
+}
 function connect(code: string, create = false) {
   roomCode = code || randomCode(); persist()
   socket?.disconnect()
@@ -81,18 +91,28 @@ function connect(code: string, create = false) {
   socket.on('state', next => {
     if (state?.phase !== next.phase && ['lobby', 'countdown'].includes(next.phase)) {
       input.jump = input.interact = input.prank = false
+      input.x = input.z = 0
+      keys.clear()
+      document.getElementById('toast')?.classList.remove('is-visible')
+      document.getElementById('game-toast')?.classList.remove('is-visible')
+      document.getElementById('respawn-hud')?.classList.remove('is-visible')
+      document.getElementById('prank-log')?.replaceChildren()
       for (const type of Object.keys(localCds)) delete localCds[type]
       document.querySelector('.lobby-details')?.removeAttribute('open')
     }
     state = next
     game.setState(next)
+    intro.sync(next)
+    callouts.sync(next, me?.id, performance.now())
     audio.bomb(next.phase === 'play' ? next.objects?.bomb?.fuse ?? 0 : 0)
     renderState()
   })
   socket.on('cue', (type: string) => audio.play(type))
   socket.on('event', event => {
-    toast(event.text)
-    addPrankLog(event.text, event.type)
+    const playing = document.body.dataset.screen === 'hud'
+    if (event.type === 'tail_steal' && playing) callouts.tailSteal(event, me?.id, performance.now())
+    else if (playing && PRANK_LOG_EVENTS.has(event.type)) addPrankLog(event.text)
+    else if (!['round_intro', 'round_start', 'round_result', 'fall', 'respawn'].includes(event.type)) toast(event.text)
     audio.event(event.type, event.itemType)
     if (!Number.isFinite(event.x) || !Number.isFinite(event.z)) return
     game.showPrankEffect(effectFor(event), event.x, event.z)
@@ -126,6 +146,11 @@ async function shareInvite() {
 }
 function renderState() {
   if (!state) return
+  if (state.phase === 'countdown' && state.intro) {
+    show('intro')
+    intro.frame(performance.now())
+    return
+  }
   document.querySelector('.room-code')!.innerHTML = `${state.code} <small>복사</small>`
   roomCode = state.code
   void renderInvite(state.code)
@@ -172,7 +197,7 @@ function renderState() {
     document.getElementById('round-count')!.textContent = `ROUND ${state.roundIndex + 1} / ${state.plan?.length ?? 5}`
     document.getElementById('round-title')!.textContent = state.round.title
     document.getElementById('objective-text')!.textContent = state.round.short
-    const seconds = state.phase === 'countdown' ? Math.ceil(state.round.timeLeft) : Math.ceil(state.round.timeLeft)
+    const seconds = Math.ceil(state.round.timeLeft)
     document.getElementById('timer')!.textContent = String(seconds).padStart(2, '0')
     const obj: any = state.objects || {}
     const current = obj.delivered ?? 0
@@ -425,10 +450,17 @@ function rename() {
 }
 const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop', bomb_boom: 'boom', bomb_pass: 'bomb', sweeper_hit: 'sweeper', sweeper_assist: 'sweeper', sweeper_warn: 'sweeper', tail_steal: 'tail', tail_bonus: 'tail', herd_score: 'herd_score', switch_open: 'switch_open', vault_hit: 'vault_hit', vault_grab: 'mega_grab', vault_delivered: 'mega' }
 function effectFor(event: any) { return event.type === 'bomb_boom' ? 'boom' : event.itemType === 'headbutt' ? 'shockwave' : event.itemType || EVENT_EFFECTS[event.type] || 'reverse' }
-function leave() { socket?.disconnect(); socket = null; state = null; me = null; keys.clear(); game.clearState(); show('title'); toast('다음 파티를 기다리고 있어요.') }
-function addPrankLog(message: string, type: string) { if (!['prank', 'prank_item', 'crown', 'mega', 'mega_grab', 'tether', 'fall', 'respawn'].includes(type)) return; const log = document.getElementById('prank-log'); if (!log) return; const line = document.createElement('div'); line.textContent = message; log.prepend(line); while (log.children.length > 3) log.lastElementChild?.remove() }
-function sendInput(now: number) { if (!socket?.connected || !me) return; if (now - lastInputAt < 45) return; lastInputAt = now; socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
-function flushInput() { if (!socket?.connected || !me) return; lastInputAt = performance.now(); socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
+function leave() { socket?.disconnect(); socket = null; state = null; intro.sync(null); callouts.sync(null, '', performance.now()); me = null; keys.clear(); game.clearState(); show('title'); toast('다음 파티를 기다리고 있어요.') }
+const PRANK_LOG_EVENTS = new Set(['prank', 'prank_item', 'crown', 'mega', 'mega_grab', 'tether', 'fall', 'respawn'])
+function addPrankLog(message: string) {
+  const log = document.getElementById('prank-log')!
+  const line = document.createElement('div')
+  line.textContent = message
+  log.prepend(line)
+  while (log.children.length > 3) log.lastElementChild?.remove()
+}
+function sendInput(now: number) { if (!socket?.connected || !me || state?.phase === 'countdown') return; if (now - lastInputAt < 45) return; lastInputAt = now; socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
+function flushInput() { if (!socket?.connected || !me || state?.phase === 'countdown') return; lastInputAt = performance.now(); socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
 
 ui.addEventListener('click', e => {
   const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action], .color-pick')
@@ -447,6 +479,7 @@ ui.addEventListener('click', e => {
   if (action === 'join-code') { const code = (document.getElementById('join-code') as HTMLInputElement).value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length !== 6) toast('방 코드는 6자리예요.'); else connect(code) }
   if (action === 'ready') socket?.emit('toggle_ready')
   if (action === 'rename') rename()
+  if (action === 'skip-intro') intro.skip()
   if (action === 'start') socket?.emit('start_match')
   if (action === 'rematch') socket?.emit('rematch')
   if (action === 'mute') { audio.toggle(); paintMute(); persist() }
@@ -647,7 +680,8 @@ function frame(now: number) {
   sendInput(now)
   // 스냅샷이 띄엄띄엄 와도 쿨타임 초가 끊기지 않게 프레임에서도 다시 그린다.
   if (now - lastCooldownPaint > 110) { lastCooldownPaint = now; if (state?.phase === 'play' || state?.phase === 'countdown' || state?.phase === 'lobby') paintCooldowns() }
-  game.render(dt)
+  callouts.tick(now)
+  game.render(dt, intro.frame(now))
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)

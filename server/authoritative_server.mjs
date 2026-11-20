@@ -80,7 +80,8 @@ const MEGA_ZONE = { x: 0, z: -7.2 }
 // 테스트 전용 훅(프로덕션에서는 환경변수가 없어 기본값 그대로 동작한다).
 const ENV_ROUND_MS = Number(process.env.MM_ROUND_MS || 0)
 const ENV_START_ROUND = Number(process.env.MM_START_ROUND || 0)
-const COUNTDOWN_MS = Number(process.env.MM_COUNTDOWN_MS || 3000)
+const COUNTDOWN_MS = Number(process.env.MM_COUNTDOWN_MS || 2000)
+const OPENING_MS = Number(process.env.MM_OPENING_MS ?? (process.env.MM_COUNTDOWN_MS ? Math.min(2200, COUNTDOWN_MS) : 2200))
 const RESULT_MS = Number(process.env.MM_RESULT_MS || 6500)
 const COOP_SUCCESS_DISPLAY_MS = 1250
 const GRAB_RANGE = 1.65
@@ -419,7 +420,7 @@ class Room {
     if (count > 0) this.addBots(count, this.botDifficulty)
     for (const p of this.players.values()) { p.stats = emptyStats(); p.roundStats = emptyStats(); p.respawns = 0; p.megaDeliveries = 0; p.falls = 0; p.prankSuccesses = 0; p.prankCount = 0 }
     this.roundIndex = ENV_START_ROUND >= 0 && ENV_START_ROUND < this.plan.length ? ENV_START_ROUND : 0
-    this.startCountdown()
+    this.startCountdown(true)
     return true
   }
   addBots(count, difficulty) {
@@ -431,20 +432,21 @@ class Room {
     }
     this.emitEvent('bots', `${count}명의 말랑봇이 참가했어요!`)
   }
-  startCountdown() {
+  startCountdown(opening = false) {
     const def = this.definition
-    if (this.phase === 'lobby') {
-      for (const p of this.players.values()) {
-        Object.assign(p, spawnFor(p.seat), { vx: 0, vz: 0, jumpY: 0, jumpV: 0, jumpBufferUntil: 0, coyoteUntil: 0, lastPrankedAt: 0, lastPrankedBy: '' })
-      }
+    for (const p of this.players.values()) {
+      Object.assign(p, spawnFor(p.seat), { vx: 0, vz: 0, jumpY: 0, jumpV: 0, jumpBufferUntil: 0, coyoteUntil: 0, lastPrankedAt: 0, lastPrankedBy: '' })
     }
     this.phase = 'countdown'
     this.roundResult = null
-    this.phaseEndsAt = Date.now() + COUNTDOWN_MS
+    this.intro = { openingMs: opening ? OPENING_MS : 0, roundMs: COUNTDOWN_MS }
+    this.phaseEndsAt = Date.now() + this.intro.openingMs + this.intro.roundMs
     this.roundStartedAt = 0
     for (const p of this.players.values()) { p.roundScore = 0; p.contribution = 0; p.crownTime = 0; p.carried = ''; p.roundAlive = true; p.roundStats = emptyStats(); p.partnerId = ''; p.respawning = false; p.respawnAt = 0; p.respawnReason = ''; p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }; p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }; p.slipUntil = 0; p.slowUntil = 0; p.inkUntil = 0; p.reverseUntil = 0; p.stickyUntil = 0; p.staggerUntil = 0; p.knockdownUntil = 0; p.hugUntil = 0; p.prankImmuneUntil = 0; p.spin = 0; p.motion = 'Idle'; p.motionUntil = 0; p.grabbedBy = ''; p.grabTargetId = ''; p.grabUntil = 0; p.escapePresses = 0; p.missionProgress = 0; p.missionComplete = false; p.lastBonkTargetId = '' }
     this.assignPairs()
     this.round = this.buildRound(def)
+    if (def.type === 'bomb') this.assignBomb(null, null)
+    if (def.type === 'tail') this.assignTails(null)
     if (def.type === 'pizza' || def.type === 'balloon') this.round.mega = { id: MEGA_ID, kind: def.type === 'pizza' ? 'golden_pizza' : 'golden_trophy', name: def.type === 'pizza' ? '초대형 황금 피자' : '황금 트로피', x: MEGA_SPAWN.x, z: MEGA_SPAWN.z, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
     if (def.type === 'vault') {
       this.round.mega = { id: MEGA_ID, kind: 'golden_vault', name: '황금 금고', ...MEGA_SPAWN, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
@@ -488,34 +490,39 @@ class Room {
       p.stealCooldownUntil = 0
       p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: p.input.prankType || 'headbutt' }
     }
-    if (this.round?.type === 'bomb') this.assignBomb(null, now)
-    if (this.round?.type === 'tail') this.assignTails()
+    if (this.round?.type === 'bomb') {
+      const firstHolder = this.connected().find(p => p.id === this.round.bomb.holder)
+      this.assignBomb(null, now, firstHolder)
+    }
+    if (this.round?.type === 'platform') this.round.pulseAt = now + 5000
+    if (this.round?.type === 'tail') this.assignTails(now)
     if (this.round?.type === 'sweeper') { this.round.sweeper.angle = 0; this.round.sweeper.reverseAt = now + SWEEPER_REVERSE_EVERY_MS }
     this.emitEvent('round_start', '출발!')
     this.broadcast()
   }
   /** 시한폭탄: 무작위 생존자에게 새 폭탄을 쥐여 준다(방금 터진 사람은 제외). */
-  assignBomb(excludeId, now = Date.now()) {
+  assignBomb(excludeId, now = Date.now(), firstHolder) {
     const bomb = this.round?.bomb
     if (!bomb) return null
     const pool = this.connected().filter(p => !p.respawning && p.id !== excludeId)
-    const holder = pool[Math.floor(Math.random() * pool.length)] || null
+    const holder = firstHolder ?? pool[Math.floor(Math.random() * pool.length)] ?? null
     bomb.holder = holder?.id || ''
     bomb.x = holder?.x || 0
     bomb.z = holder?.z || 0
-    bomb.fuseEndsAt = now + BOMB_FUSE_MS
-    bomb.immuneUntil = now + BOMB_PASS_IMMUNE_MS
+    bomb.fuseEndsAt = now === null ? 0 : now + BOMB_FUSE_MS
+    bomb.immuneUntil = now === null ? 0 : now + BOMB_PASS_IMMUNE_MS
     bomb.passCooldownUntil = 0
-    if (holder) this.emitEvent('bomb_pick', `${holder.name}님이 폭탄을 받았다! ${Math.round(BOMB_FUSE_MS / 1000)}초 안에 넘겨라!`, { playerId: holder.id, x: holder.x, z: holder.z, fuse: BOMB_FUSE_MS })
+    if (holder && now !== null) this.emitEvent('bomb_pick', `${holder.name}님이 폭탄을 받았다! ${Math.round(BOMB_FUSE_MS / 1000)}초 안에 넘겨라!`, { playerId: holder.id, x: holder.x, z: holder.z, fuse: BOMB_FUSE_MS })
     return holder
   }
   /** 꼬리 뺏기: 절반(올림)의 플레이어에게 눈에 띄는 꼬리를 달아 준다. */
-  assignTails() {
+  assignTails(now) {
     const round = this.round
     if (!round) return
     const players = this.connected().sort((a, b) => a.seat - b.seat)
     const count = Math.max(1, Math.ceil(players.length / 2))
-    const picked = shuffle(players).slice(0, count)
+    const preview = round.tails.map(id => players.find(player => player.id === id)).filter(Boolean)
+    const picked = preview.length === count ? preview : shuffle(players).slice(0, count)
     // 사람만 있는 방에서 봇이 꼬리를 독차지하면 재미가 없으니, 사람 1명은 반드시 꼬리를 받는다.
     const humans = picked.filter(player => !player.isBot)
     if (!humans.length && count >= 1) {
@@ -524,8 +531,9 @@ class Room {
     }
     round.tails = picked.map(player => player.id)
     round.tailStolen = 0
+    if (now === null) return
     // 꼬리를 받자마자 바로 뺏기지 않도록 2초 보호.
-    for (const player of picked) player.tailImmuneUntil = Date.now() + TAIL_START_IMMUNE_MS
+    for (const player of picked) player.tailImmuneUntil = now + TAIL_START_IMMUNE_MS
     this.emitEvent('tail_start', `꼬리 ${count}개 배정! 꼬리를 뺏고 지켜라!`, { tails: round.tails.map(id => this.players.get(id)?.name).filter(Boolean) })
   }
   hasTail(player) { return Boolean(this.round?.tails?.includes(player.id)) }
@@ -739,7 +747,7 @@ class Room {
     this.start(player)
   }
   handleInput(player, input) {
-    if (!['lobby', 'countdown', 'play'].includes(this.phase)) return
+    if (this.phase !== 'lobby' && this.phase !== 'play') return
     if (!input || typeof input !== 'object') return
     if (player.respawning || this.round?.completed) return
     let ix = clamp(Number(input.x) || 0, -1, 1), iz = clamp(Number(input.z) || 0, -1, 1)
@@ -1361,7 +1369,11 @@ class Room {
   }
   tick(now) {
     this.lastActivity = now
-    if (this.phase === 'countdown' && now >= this.phaseEndsAt) { this.beginPlay(); return }
+    if (this.phase === 'countdown') {
+      if (now >= this.phaseEndsAt) this.beginPlay()
+      else this.broadcast()
+      return
+    }
     if (this.phase === 'lobby') {
       for (const item of this.practiceItems) {
         if (item.consumed && now >= item.respawnAt) item.consumed = false
@@ -1383,7 +1395,7 @@ class Room {
       else this.broadcast()
       return
     }
-    if (this.phase === 'countdown' || this.phase === 'play') {
+    if (this.phase === 'play') {
       const dt = TICK_MS / 1000
       for (const p of this.connected()) {
         if (p.respawning) { if (now >= p.respawnAt) this.completeRespawn(p); continue }
@@ -1391,13 +1403,10 @@ class Room {
         this.updatePlayer(p, dt)
       }
       this.updateTether(dt)
-      if (this.phase === 'play') {
-        if (this.round?.type === 'vault') moveVaultHazards(this.round, dt)
-        this.updateMega(dt)
-      }
+      if (this.round?.type === 'vault') moveVaultHazards(this.round, dt)
+      this.updateMega(dt)
       this.separatePlayers()
-      if (this.phase === 'play') this.updateRound(dt)
-      if (this.phase === 'countdown') { this.broadcast(); return }
+      this.updateRound(dt)
       if (now >= this.phaseEndsAt) this.finishRound()
       else if (this.round?.type === 'banana' && this.round.delivered >= this.definition.target) this.finishRound()
       else if (this.round?.type === 'pizza' && this.round.delivered >= this.round.total) this.finishRound()
@@ -1418,7 +1427,8 @@ class Room {
     const def = this.definition
     return {
       marker: MARKER, code: this.code, phase: this.phase, roundIndex: this.roundIndex,
-      round: def ? { ...def, timeLeft: this.phase === 'play' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : (this.phase === 'countdown' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : 0) } : null,
+      round: def ? { ...def, completed: Boolean(this.round?.completed), timeLeft: ['play', 'countdown'].includes(this.phase) ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : 0 } : null,
+      ...(this.phase === 'countdown' && { intro: this.intro }),
       phaseEndsAt: this.phaseEndsAt, hostId: this.hostId, players: this.allPlayers().map(p => playerSnapshot(p, viewerId, this.round?.tails || [])),
       matchSettings: { roundCount: this.roundCount, botCount: this.botCount },
       plan: this.plan.map(entry => ({ id: entry.id, mode: entry.mode, title: entry.title, short: entry.short, duration: entry.duration })),

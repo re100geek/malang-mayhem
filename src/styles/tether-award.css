@@ -6,10 +6,6 @@
 .tether-line.danger{color:#ff8a9a}
 .tether-line .mega-flag{display:inline-block;margin-left:6px;padding:2px 7px;border-radius:999px;background:rgba(255,207,75,.18);border:1px solid rgba(255,207,75,.5);color:var(--yellow);font-size:9px;letter-spacing:.06em}
 
-.respawn-hud{position:absolute;left:50%;top:38%;transform:translate(-50%,12px) scale(.92);display:flex;align-items:baseline;gap:9px;padding:14px 24px;border-radius:18px;background:rgba(23,21,47,.92);border:2px solid #ff5d6c;color:var(--cream);opacity:0;pointer-events:none;transition:opacity .16s,transform .16s;z-index:3}
-.respawn-hud.is-visible{opacity:1;transform:translate(-50%,0) scale(1)}
-.respawn-hud b{font-size:40px;line-height:1;color:#ff8a9a;font-variant-numeric:tabular-nums}
-.respawn-hud span{font-size:12px;font-weight:800;letter-spacing:.04em}
 
 .recap-list{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 16px}
 .recap-list:empty{display:none}
@@ -33,13 +29,7 @@
 .highlight-row em{font-style:normal;font-size:11px;font-weight:800;color:var(--yellow)}
 
 @media(max-width:800px){
-  /* 모바일에서는 알림 토스트가 캐릭터 얼굴을 가리지 않도록 픽커 위쪽으로 비켜 둔다. */
-  body[data-screen="hud"] .toast{top:auto!important;bottom:calc(248px + var(--bottom))!important;max-width:calc(100% - 24px);font-size:12px;padding:10px 14px}
-  .event-toast{top:auto!important;bottom:calc(300px + var(--bottom))!important;left:12px!important;right:12px!important;max-width:none;text-align:center;font-size:12px;line-height:1.45;padding:10px 14px;transform:translateY(10px)!important}
-  .event-toast.is-visible{transform:translateY(0)!important}
   .tether-line{font-size:10px}
-  .respawn-hud{top:42%;padding:10px 16px;border-radius:14px}
-  .respawn-hud b{font-size:30px}
   .recap-row{min-width:calc(50% - 6px);flex:1}
   .award-board{grid-template-columns:1fr}
   .result-card,.final-card{max-height:86vh;overflow:auto}

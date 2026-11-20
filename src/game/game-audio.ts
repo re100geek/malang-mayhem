@@ -13,6 +13,7 @@ const cues: Record<string, Cue> = {
   bomb_boom: { notes: [90, 52], wave: 'sawtooth', glide: 32, length: .24 },
   tail_steal: { notes: [620, 490, 910], length: .09 },
   score: { notes: [520, 780] },
+  match_opening: { notes: [262, 392, 523, 659, 784], wave: 'triangle', length: .24 },
   round_start: { notes: [392, 523, 784] },
   round_result: { notes: [660, 523, 392], length: .18 },
   final: { notes: [392, 523, 659, 784], length: .2 },

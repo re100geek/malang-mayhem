@@ -21,14 +21,6 @@ export function warmupPanel(colors: string[], names: string[]): string {
               <strong id="next-title"></strong> <small id="next-stats"></small>
               <p id="next-desc"></p>
             </section>
-            ${matchSettings('lobby')}
-            <div class="lobby-rename">
-              <label for="lobby-nickname">닉네임</label>
-              <input id="lobby-nickname" maxlength="14" autocomplete="off">
-              <button data-action="rename">변경</button>
-              <div class="lobby-colors">${colors.map((color, i) => `<button class="color-pick" data-color="${i}" style="--pick:${color}" aria-label="${names[i]}"></button>`).join('')}</div>
-            </div>
-            <div class="player-list" id="player-list"></div>
             <div class="invite-panel">
               <input id="invite-link" aria-label="방 초대 링크" readonly>
               <div class="warmup-actions">
@@ -38,6 +30,14 @@ export function warmupPanel(colors: string[], names: string[]): string {
               </div>
               <canvas id="qr-code" width="156" height="156" aria-label="방 초대 QR 코드"></canvas>
             </div>
+            ${matchSettings('lobby')}
+            <div class="lobby-rename">
+              <label for="lobby-nickname">닉네임</label>
+              <input id="lobby-nickname" maxlength="14" autocomplete="off">
+              <button data-action="rename">변경</button>
+              <div class="lobby-colors">${colors.map((color, i) => `<button class="color-pick" data-color="${i}" style="--pick:${color}" aria-label="${names[i]}"></button>`).join('')}</div>
+            </div>
+            <div class="player-list" id="player-list"></div>
             <button data-action="leave">방 나가기</button>
           </div>
         </details>

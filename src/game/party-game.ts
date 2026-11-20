@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Character, CHARACTER_HEIGHT, type ClipName } from '../engine/character'
 import { RoundObjects } from './round-objects'
+import { placeIntroCamera, type CameraIntro } from './intro-camera'
+import { landingHeight, type IntroTiming } from './round-intro'
 import { ImpactEffects } from './impact-effects'
 import type { MatchSettings } from './match-settings'
 import { createProp, createTail, ingredientProp, prankItemProp } from '../engine/props'
@@ -19,7 +21,8 @@ export type BombObject = { holder: string; holderName: string; x: number; z: num
 export type SweeperObject = { angle: number; speed: number; radius: number; warn: number; reverseIn: number; direction: number }
 export type TailObject = { id: string; color: string }
 export type PartyState = {
-  code: string; hostId: string; phase: string; roundIndex: number; round: { title: string; short: string; mode: string; timeLeft: number; duration: number } | null
+  code: string; hostId: string; phase: string; roundIndex: number; round: { title: string; short: string; mode: string; timeLeft: number; duration: number; completed?: boolean } | null
+  intro?: IntroTiming
   matchSettings?: MatchSettings
   plan?: { title: string; short?: string; mode: string; duration?: number }[]
   players: Player[]; objects: any; platforms: any[]; targetColor: string; result: any; event?: any; pairs?: TetherPair[]
@@ -225,8 +228,8 @@ export class PartyGame {
     const lobby = state.phase === 'lobby'
     this.practiceBoundary.visible = lobby
     if (state.phase !== this.lastPhase) {
+      if (!(this.lastPhase === 'countdown' && state.phase === 'play')) this.clearProps()
       this.lastPhase = state.phase
-      this.clearProps()
     }
     const seen = new Set<string>()
     const dummy: Player | undefined = lobby ? state.objects?.practiceDummy : undefined
@@ -309,6 +312,10 @@ export class PartyGame {
             child.material.dispose()
           }
         })
+      }
+      if (object instanceof THREE.Mesh && ['delivery', 'station', 'tower', 'mega-zone'].includes(key)) {
+        object.geometry.dispose()
+        object.material.dispose()
       }
       if (key.startsWith('practice:')) {
         object.traverse(child => { if (child instanceof THREE.Mesh) child.geometry.dispose() })
@@ -422,6 +429,10 @@ export class PartyGame {
     if (objects.type === 'bomb') this.syncBomb(state, objects.bomb as BombObject | null, keep)
     if (objects.type === 'sweeper') this.syncSweeper(objects.sweeper as SweeperObject | null, keep)
     this.syncTails(state, objects.tails as TailObject[] | null, keep)
+    if (objects.delivery) this.marker('delivery', objects.delivery.x, objects.delivery.z, '#ffcf4b', keep)
+    if (objects.station) this.marker('station', objects.station.x, objects.station.z, '#ef6b65', keep)
+    if (objects.tower) this.marker('tower', objects.tower.x, objects.tower.z, '#a877ff', keep)
+    if (objects.mega) this.syncMega(objects.mega as MegaObject, keep)
     for (const [key, object] of this.props) {
       if (keep.has(key)) continue
       if (objects.type === 'practice' && key.startsWith('practice:')) {
@@ -431,10 +442,6 @@ export class PartyGame {
       object.removeFromParent()
       this.props.delete(key)
     }
-    if (objects.delivery) this.marker('delivery', objects.delivery.x, objects.delivery.z, '#ffcf4b', keep)
-    if (objects.station) this.marker('station', objects.station.x, objects.station.z, '#ef6b65', keep)
-    if (objects.tower) this.marker('tower', objects.tower.x, objects.tower.z, '#a877ff', keep)
-    if (objects.mega) this.syncMega(objects.mega as MegaObject, keep)
   }
 
   /** 시한폭탄 — 든 사람 머리 위에 붙이고, 심지 불꽃을 깜빡인다. */
@@ -611,7 +618,7 @@ export class PartyGame {
   }
 
   /** 매 프레임: AI 봇과 내 캐릭터 모두 같은 경로로 애니메이션한다. */
-  step(dt: number): void {
+  step(dt: number, intro?: CameraIntro): void {
     const state = this.state
     for (const [id, view] of this.views) {
       const player = state?.players.find(p => p.id === id)
@@ -634,13 +641,17 @@ export class PartyGame {
       }
       const rate = local ? 22 : 16
       const snap = view.character.root.position.distanceTo(tmpVec) > 3.2
-      if (snap) view.character.root.position.copy(tmpVec)
+      if (snap || intro) view.character.root.position.copy(tmpVec)
       else view.character.root.position.lerp(tmpVec, 1 - Math.exp(-rate * dt))
+
+      const landing = intro?.kind === 'opening' && !intro.reducedMotion && player?.connected
+      const lift = landing ? landingHeight(intro.progress, player.seat) : 0
+      if (intro) view.character.root.position.y = view.y + lift
 
       const speed = local && heading !== undefined && Math.hypot(this.localInput.x, this.localInput.z) > 0.12
         ? Math.max(view.speed, Math.hypot(this.localInput.x, this.localInput.z) * 5.2)
         : view.speed
-      view.character.update(dt, { speed, y: view.y, action: view.action, spin: view.spin, heading })
+      view.character.update(dt, { speed, y: view.y + lift, action: lift > .06 ? 'Jump' : view.action, spin: view.spin, heading })
       if (local) this.localPosition.copy(view.character.root.position)
     }
 
@@ -679,7 +690,11 @@ export class PartyGame {
     }
   }
 
-  private updateCamera(dt: number): void {
+  private updateCamera(dt: number, intro?: CameraIntro): void {
+    if (intro && this.state) {
+      placeIntroCamera(this.camera, this.lookTarget, this.state, this.me, intro)
+      return
+    }
     if (this.propsMode) {
       this.camera.position.set(0, 12.5, 15.5)
       this.lookTarget.set(0, 0.6, 0)
@@ -718,7 +733,7 @@ export class PartyGame {
     this.camera.lookAt(this.lookTarget)
   }
 
-  render(dt: number): void {
+  render(dt: number, intro?: CameraIntro): void {
     if (this.state?.phase === 'play' && this.lastPhase === 'play' && !this.snapped) {
       this.snapped = true
       const me = this.views.get(this.me)
@@ -730,8 +745,8 @@ export class PartyGame {
       }
     }
     if (this.state?.phase !== 'play') this.snapped = false
-    this.step(dt)
-    this.updateCamera(dt)
+    this.step(dt, intro)
+    this.updateCamera(dt, intro)
     this.impacts.update(dt)
     const shake = this.impacts.cameraOffset()
     this.camera.position.x += shake

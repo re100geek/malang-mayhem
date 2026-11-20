@@ -1,0 +1,39 @@
+.intro-screen {
+  z-index: 3;
+  transition: none;
+  background: linear-gradient(#17152f55, transparent 20%, transparent 66%, #17152fb0);
+}
+.intro-tap { position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; }
+.intro-skip {
+  position: absolute;
+  top: calc(16px + var(--safe));
+  right: max(16px, env(safe-area-inset-right));
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid #fff9e866;
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--cream);
+  font-weight: 800;
+}
+.intro-card {
+  position: absolute;
+  left: 50%;
+  bottom: calc(clamp(14px, 7vh, 54px) + var(--bottom));
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 28px);
+  display: grid;
+  gap: 4px;
+  padding: 10px clamp(12px, 3vw, 24px);
+  border: 1px solid #fff9e866;
+  border-radius: 14px;
+  background: #25213f;
+  text-align: center;
+  word-break: keep-all;
+  pointer-events: none;
+}
+.intro-card strong { font-size: clamp(17px, 4vw, 27px); }
+#intro-rule { font-size: clamp(11px, 3.2vw, 15px); }
+#intro-rule:empty { display: none; }
+body[data-screen="intro"] .toast { visibility: hidden; }

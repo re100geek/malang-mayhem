@@ -132,3 +132,38 @@ test('host configures match length and bots and can restart directly in the same
     a.socket.disconnect(); b.socket.disconnect(); child.kill('SIGTERM'); await once(child, 'exit')
   }
 })
+
+test('intros share a server deadline, lock input and preview the first bomb holder', async () => {
+  const { child, port } = await startServer({
+    MM_ROUND_IDS: 'hot_potato,pair_switch,crown',
+    MM_OPENING_MS: '500', MM_COUNTDOWN_MS: '500', MM_ROUND_MS: '1100', MM_RESULT_MS: '250',
+  })
+  const a = await open(port, 'CUT123', '말랑A', 0, { roundCount: 3 })
+  const b = await open(port, 'CUT123', '말랑B', 1)
+  try {
+    const first = state(a.socket, s => s.phase === 'countdown')
+    const guest = state(b.socket, s => s.phase === 'countdown')
+    a.socket.emit('start_match')
+    const [intro, peer] = await Promise.all([first, guest])
+    assert.deepEqual(intro.intro, { openingMs: 500, roundMs: 500 })
+    assert.equal(intro.phaseEndsAt, peer.phaseEndsAt)
+    assert.equal(intro.objects.bomb.holder, peer.objects.bomb.holder)
+    assert.ok(intro.objects.bomb.holder)
+    assert.equal(intro.objects.bomb.fuse, 0)
+
+    a.socket.emit('input', { x: 1, jump: true, prank: true })
+    const preview = await state(a.socket, s => s.phase === 'countdown' && s.round.timeLeft < .5)
+    assert.deepEqual(preview.players.map(p => [p.x, p.z, p.jumpY, p.roundScore]),
+      intro.players.map(p => [p.x, p.z, 0, 0]))
+    const live = await state(a.socket, s => s.phase === 'play')
+    assert.equal(live.objects.bomb.holder, intro.objects.bomb.holder)
+    assert.ok(live.objects.bomb.fuse > 11)
+    assert.ok(live.phaseEndsAt >= intro.phaseEndsAt + 1100)
+
+    const next = await state(a.socket, s => s.phase === 'countdown' && s.roundIndex === 1)
+    assert.deepEqual(next.intro, { openingMs: 0, roundMs: 500 })
+    assert.equal(next.pairs.length, 1)
+  } finally {
+    a.socket.disconnect(); b.socket.disconnect(); child.kill('SIGTERM'); await once(child, 'exit')
+  }
+})

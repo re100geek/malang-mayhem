@@ -55,3 +55,14 @@ test('bomb snapshots play once per displayed second and mute silences playback',
   audio.event('bomb_boom')
   expect(start).toHaveBeenCalledTimes(3)
 })
+
+test('opening fanfare synthesizes five notes and respects the saved mute setting', () => {
+  const audio = new GameAudio(true)
+  audio.unlock()
+  audio.play('match_opening')
+  expect(start).not.toHaveBeenCalled()
+  audio.toggle()
+  audio.play('match_opening')
+  audio.play('match_opening')
+  expect(start).toHaveBeenCalledTimes(5)
+})
