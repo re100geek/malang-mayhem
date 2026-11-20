@@ -81,10 +81,10 @@ body[data-screen="lobby"] .toast { pointer-events: none; }
 }
 
 @media (min-width: 801px) {
-  body.touch-input[data-screen="lobby"] .controls-hint { display: none; }
-  body.touch-input[data-screen="lobby"] .hud-bottom { left: 132px; right: 148px; }
-  body.touch-input[data-screen="lobby"] .mobile-controls { display: block !important; position: absolute; inset: 0; pointer-events: none; }
-  body.touch-input[data-screen="lobby"] .stick {
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .controls-hint { display: none; }
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .hud-bottom { left: 132px; right: 148px; }
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .mobile-controls { display: block !important; position: absolute; inset: 0; pointer-events: none; }
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .stick {
     pointer-events: auto;
     touch-action: none;
     position: absolute;
@@ -96,13 +96,13 @@ body[data-screen="lobby"] .toast { pointer-events: none; }
     background: #17152f75;
     border: 2px solid #fff9e873;
   }
-  body.touch-input[data-screen="lobby"] .stick i {
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .stick i {
     position: absolute;
     inset: 29px;
     border-radius: 50%;
     background: var(--cream);
   }
-  body.touch-input[data-screen="lobby"] .action-round {
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .action-round {
     width: 56px;
     height: 56px;
     right: max(16px, env(safe-area-inset-right));
@@ -111,8 +111,8 @@ body[data-screen="lobby"] .toast { pointer-events: none; }
     background: var(--yellow);
     color: var(--ink);
   }
-  body.touch-input[data-screen="lobby"] .action-round.pink { right: max(80px, calc(env(safe-area-inset-right) + 64px)); background: var(--pink); }
-  body.touch-input[data-screen="lobby"] .action-round.prank { bottom: calc(82px + var(--bottom)); background: #b76cff; color: white; }
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .action-round.pink { right: max(80px, calc(env(safe-area-inset-right) + 64px)); background: var(--pink); }
+  body.touch-input:is([data-screen="lobby"], [data-screen="hud"]) .action-round.prank { bottom: calc(82px + var(--bottom)); background: #b76cff; color: white; }
 }
 
 .title-screen .profile-card label { min-width: 0; }
@@ -126,10 +126,18 @@ body[data-screen="lobby"] .toast { pointer-events: none; }
 
 @media (min-width: 801px) {
   .warmup-panel .warmup-settings { padding-top: 12px; }
+  .warmup-panel .host-tag { letter-spacing: .035em; }
   .warmup-panel .warmup-next p { margin-top: 8px; }
 }
 
-body.touch-input[data-screen="lobby"] .prank-picker [data-prank="headbutt"] { display: none; }
+body.touch-input .prank-picker [data-prank="headbutt"] { display: none; }
+
+@media (max-width: 800px) {
+  .prank-picker [data-prank="headbutt"] { display: none; }
+  .warmup-panel { background: #25213f; }
+}
+
+body.touch-input .warmup-panel { background: #25213f; }
 
 @media (max-width: 480px) {
   .title-screen .profile-card { flex-wrap: wrap; }

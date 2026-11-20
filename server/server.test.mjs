@@ -4,8 +4,8 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { io } from 'socket.io-client'
 
-async function startServer() {
-  const child = spawn(process.execPath, ['authoritative_server.mjs'], { cwd: import.meta.dirname, env: { ...process.env, HOST: '127.0.0.1', PORT: '0', ALLOWED_ORIGINS: '' }, stdio: ['ignore', 'pipe', 'pipe'] })
+async function startServer(env = {}) {
+  const child = spawn(process.execPath, ['authoritative_server.mjs'], { cwd: import.meta.dirname, env: { ...process.env, HOST: '127.0.0.1', PORT: '0', ALLOWED_ORIGINS: '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
   const line = await new Promise((resolve, reject) => {
     let output = ''
     const timer = setTimeout(() => reject(new Error('server startup timeout')), 10000)
@@ -14,7 +14,7 @@ async function startServer() {
   })
   return { child, port: line.port }
 }
-function open(port, room, name, colorIndex) { return new Promise((resolve, reject) => { const socket = io(`http://127.0.0.1:${port}`, { transports: ['websocket'], auth: { room, name, colorIndex } }); const timer = setTimeout(() => reject(new Error('welcome timeout')), 6000); socket.once('connect_error', reject); socket.once('welcome', welcome => { clearTimeout(timer); resolve({ socket, welcome }) }) }) }
+function open(port, room, name, colorIndex, settings = {}) { return new Promise((resolve, reject) => { const socket = io(`http://127.0.0.1:${port}`, { transports: ['websocket'], auth: { room, name, colorIndex, matchSettings: settings } }); const timer = setTimeout(() => reject(new Error('welcome timeout')), 6000); socket.once('connect_error', reject); socket.once('welcome', welcome => { clearTimeout(timer); resolve({ socket, welcome }) }) }) }
 function state(socket, predicate) { return new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('state timeout')), 7000); const handler = value => { if (predicate(value)) { clearTimeout(timer); socket.off('state', handler); resolve(value) } }; socket.on('state', handler) }) }
 
 await test('two players join, room starts and server relays authoritative movement', async () => {
@@ -79,5 +79,56 @@ test('solo warmup has reusable hazards and an interactive dummy with isolated ma
     assert.equal(player(countdown).x, 5.6)
   } finally {
     socket.disconnect(); child.kill('SIGTERM'); await once(child, 'exit')
+  }
+})
+
+test('host configures match length and bots and can restart directly in the same room', async () => {
+  const { child, port } = await startServer({ MM_COUNTDOWN_MS: '350', MM_ROUND_MS: '450', MM_RESULT_MS: '300' })
+  const a = await open(port, 'MATCH3', '테스트A', 0, { roundCount: 3, botCount: 5 })
+  const b = await open(port, 'MATCH3', '테스트B', 1, { roundCount: 5, botCount: 2 })
+  try {
+    const initial = await state(a.socket, s => s.players.length === 2)
+    assert.deepEqual(initial.matchSettings, { roundCount: 3, botCount: 5 })
+    b.socket.emit('match_settings', { roundCount: 5, botCount: 2 })
+    a.socket.emit('match_settings', { roundCount: 4, botCount: 6 })
+    a.socket.emit('match_settings', { botCount: 4 })
+    const updated = await state(b.socket, s => s.matchSettings?.botCount === 4)
+    assert.deepEqual(updated.plan, initial.plan)
+    const modes = ['solo', 'coop', 'solo']
+    assert.deepEqual(updated.plan.map(round => round.mode), modes)
+    assert.equal(new Set(updated.plan.map(round => round.id)).size, 3)
+
+    a.socket.emit('start_match')
+    const playing = await state(b.socket, s => s.phase === 'play')
+    assert.equal(playing.players.length, 6)
+    assert.deepEqual(playing.plan, updated.plan)
+    const ended = await state(a.socket, s => s.phase === 'final')
+    assert.equal(ended.roundIndex, 2)
+    assert.ok(ended.result.rankings.some(row => row.score > 0))
+
+    b.socket.emit('rematch')
+    b.socket.emit('match_settings', { roundCount: 5, botCount: 5 })
+    // A fresh observer sees the phase after both guest packets have been processed.
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const observer = await open(port, 'MATCH3', '테스트C', 2)
+    try {
+      assert.equal((await state(observer.socket, () => true)).phase, 'final')
+      const restarted = state(b.socket, s => s.phase === 'countdown')
+      a.socket.emit('rematch')
+      a.socket.emit('rematch')
+      const fresh = await restarted
+      assert.equal(fresh.code, ended.code)
+      assert.equal(fresh.hostId, ended.hostId)
+      assert.equal(fresh.roundIndex, 0)
+      assert.deepEqual(fresh.matchSettings, updated.matchSettings)
+      assert.equal(fresh.players.length, 7)
+      assert.ok(fresh.players.every(player => player.score === 0))
+      assert.deepEqual(fresh.plan.map(round => round.mode), modes)
+      assert.equal(fresh.result, null)
+    } finally {
+      observer.socket.disconnect()
+    }
+  } finally {
+    a.socket.disconnect(); b.socket.disconnect(); child.kill('SIGTERM'); await once(child, 'exit')
   }
 })

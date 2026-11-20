@@ -1,42 +1,6 @@
 import type { PartyState, Player } from './party-game'
 import type { NewRoundObjects } from './round-objects'
 
-const pitch: Record<string, number[]> = {
-  herd_score: [520, 780],
-  switch_open: [392, 523, 784],
-  vault_hit: [180, 108],
-  vault_grab: [263, 330],
-  vault_delivered: [440, 554, 660, 880],
-}
-
-let audio: AudioContext | undefined
-export function unlockRoundAudio() {
-  const Audio = window.AudioContext
-  if (!Audio) return
-  audio ??= new Audio()
-  if (audio.state === 'suspended') void audio.resume().catch(() => {})
-}
-
-export function playRoundCue(type: string) {
-  const notes = pitch[type]
-  if (!notes || !audio || audio.state !== 'running') return
-  const context = audio
-  for (const [index, frequency] of notes.entries()) {
-    const start = context.currentTime + index * 0.075
-    const tone = context.createOscillator()
-    const gain = context.createGain()
-    tone.frequency.value = frequency
-    tone.type = type === 'vault_hit' ? 'triangle' : 'sine'
-    gain.gain.setValueAtTime(0.001, start)
-    gain.gain.exponentialRampToValueAtTime(0.12, start + 0.018)
-    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.14)
-    tone.connect(gain).connect(context.destination)
-    tone.start(start)
-    tone.stop(start + 0.15)
-    tone.onended = () => { tone.disconnect(); gain.disconnect() }
-  }
-}
-
 function direction(from: Player, to: { x: number; z: number }) {
   const dx = to.x - from.x
   const dz = to.z - from.z

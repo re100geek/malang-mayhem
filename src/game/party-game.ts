@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Character, CHARACTER_HEIGHT, type ClipName } from '../engine/character'
 import { RoundObjects } from './round-objects'
+import { ImpactEffects } from './impact-effects'
+import type { MatchSettings } from './match-settings'
 import { createProp, createTail, ingredientProp, prankItemProp } from '../engine/props'
 
 export type Player = {
@@ -18,6 +20,7 @@ export type SweeperObject = { angle: number; speed: number; radius: number; warn
 export type TailObject = { id: string; color: string }
 export type PartyState = {
   code: string; hostId: string; phase: string; roundIndex: number; round: { title: string; short: string; mode: string; timeLeft: number; duration: number } | null
+  matchSettings?: MatchSettings
   plan?: { title: string; short?: string; mode: string; duration?: number }[]
   players: Player[]; objects: any; platforms: any[]; targetColor: string; result: any; event?: any; pairs?: TetherPair[]
 }
@@ -45,6 +48,7 @@ const UP = new THREE.Vector3(0, 1, 0)
 export class PartyGame {
   readonly renderer: THREE.WebGLRenderer
   readonly scene = new THREE.Scene()
+  private readonly impacts = new ImpactEffects(this.scene)
   readonly camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 120)
   readonly root = new THREE.Group()
   private readonly roundObjects = new RoundObjects(this.root)
@@ -207,6 +211,7 @@ export class PartyGame {
 
   clearState(): void {
     this.state = null
+    this.impacts.clear()
     this.me = ''
     this.lastPhase = ''
     this.practiceBoundary.visible = false
@@ -324,6 +329,10 @@ export class PartyGame {
     this.root.add(object)
     this.props.set(key, object)
     return object
+  }
+
+  showImpact(x: number, z: number, explosion: boolean, shakeCamera: boolean): void {
+    this.impacts.add(x, z, explosion, shakeCamera)
   }
 
   showPrankEffect(type: string, x = 0, z = 0): void {
@@ -723,7 +732,14 @@ export class PartyGame {
     if (this.state?.phase !== 'play') this.snapped = false
     this.step(dt)
     this.updateCamera(dt)
+    this.impacts.update(dt)
+    const shake = this.impacts.cameraOffset()
+    this.camera.position.x += shake
     this.renderer.render(this.scene, this.camera)
+    if (shake) {
+      this.camera.position.x -= shake
+      this.camera.updateMatrixWorld()
+    }
   }
 
   private snapped = false
