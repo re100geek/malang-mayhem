@@ -12,7 +12,7 @@ import * as THREE from 'three'
 export type PropKind =
   | 'banana' | 'pizza_dough' | 'pizza_sauce' | 'pizza_cheese' | 'pizza_pepperoni'
   | 'crown' | 'balloon' | 'banana_peel' | 'jelly_pool' | 'mallet' | 'reverse_arrow'
-  | 'bomb' | 'sweeper_bar' | 'tail' | 'golden_pizza' | 'golden_trophy' | 'fallback'
+  | 'bomb' | 'sweeper_bar' | 'tail' | 'golden_pizza' | 'golden_trophy' | 'golden_vault' | 'fallback'
 
 type MatKey = string
 
@@ -291,6 +291,17 @@ function goldenTrophy(): THREE.Object3D {
   return group(...parts)
 }
 
+function goldenVault(): THREE.Object3D {
+  const gold = mat('#ffc44a', 0.48, 0.28)
+  const dark = mat('#503530')
+  const body = mesh(new THREE.BoxGeometry(1.53, 1.18, 1.18), gold, [0, 0.18, 0])
+  const door = mesh(new THREE.BoxGeometry(1.18, 0.88, 0.13), mat('#ffeb97'), [0, 0.2, 0.62])
+  const wheel = mesh(new THREE.TorusGeometry(0.23, 0.061, 8, 24), dark, [0, 0.2, 0.72])
+  const grip = mesh(new THREE.BoxGeometry(0.38, 0.075, 0.075), dark, [0, 0.2, 0.72])
+  const handles = [-1, 1].map(side => mesh(new THREE.TorusGeometry(0.22, 0.075, 8, 18), dark, [side * 0.79, 0.22, 0], [0, Math.PI / 2, 0]))
+  return group(body, door, wheel, grip, ...handles)
+}
+
 const BUILDERS: Record<PropKind, () => THREE.Object3D> = {
   banana,
   pizza_dough: pizzaDough,
@@ -308,6 +319,7 @@ const BUILDERS: Record<PropKind, () => THREE.Object3D> = {
   tail: () => tail('#ff5d8f'),
   golden_pizza: goldenPizza,
   golden_trophy: goldenTrophy,
+  golden_vault: goldenVault,
   fallback: () => group(mesh(new THREE.SphereGeometry(0.34, 12, 10), mat('#ffd35c', 0.7))),
 }
 

@@ -56,14 +56,14 @@ async function waitState(box, predicate, timeout = 20000) {
 
 const player = (box, id) => box.state?.players.find(p => p.id === id)
 
-async function walkTo(socket, box, id, target, timeout = 8000) {
+async function walkTo(socket, box, id, target, timeout = 8000, radius = 0.9) {
   const started = Date.now()
   while (Date.now() - started < timeout) {
     const me = player(box, id)
-    if (!me) break
+    if (!me || box.state.phase !== 'play') break
     const dx = target.x - me.x, dz = target.z - me.z
     const distance = Math.hypot(dx, dz)
-    if (distance < 0.9) break
+    if (distance < radius) break
     socket.emit('input', { x: dx / distance, z: dz / distance })
     await sleep(50)
   }
@@ -82,7 +82,7 @@ async function play(port, room, names = ['테스트A', '테스트B']) {
   return { a, b, viewA, viewB, idA: a.welcome.player.id, idB: b.welcome.player.id }
 }
 
-describe('8종 미니게임 풀에서 5라운드 랜덤 셔플', () => {
+describe('11종 미니게임 풀에서 5라운드 랜덤 셔플', () => {
   let server
   beforeAll(async () => { server = await startServer({ MM_ROUND_MS: '60000' }) }, 25000)
   afterAll(async () => { if (server) { server.child.kill('SIGTERM'); await once(server.child, 'exit').catch(() => {}) } })
@@ -102,8 +102,8 @@ describe('8종 미니게임 풀에서 5라운드 랜덤 셔플', () => {
         const coop = state.plan.filter(entry => entry.mode === 'coop')
         expect(solo.length).toBe(3)
         expect(coop.length).toBe(2)
-        for (const entry of coop) expect(['pizza', 'balloon']).toContain(entry.id)
-        for (const entry of solo) expect(['banana', 'crown', 'platform', 'hot_potato', 'sweeper', 'tail_tag']).toContain(entry.id)
+        for (const entry of coop) expect(['pizza', 'balloon', 'pair_switch', 'vault_delivery']).toContain(entry.id)
+        for (const entry of solo) expect(['banana', 'crown', 'platform', 'hot_potato', 'sweeper', 'tail_tag', 'herd']).toContain(entry.id)
         // 협동전은 2·4라운드 자리(짝꿍 라운드)에 온다.
         expect(state.plan[1].mode).toBe('coop')
         expect(state.plan[3].mode).toBe('coop')
@@ -244,4 +244,93 @@ describe('🎯 꼬리 뺏기', () => {
       session.a.socket.disconnect(); session.b.socket.disconnect()
     }
   }, 45000)
+})
+
+describe('신규 협동 라운드 서버 판정', () => {
+  async function withRound(id, check) {
+    const server = await startServer({ MM_ROUND_IDS: id, MM_ROUND_MS: '35000', MM_RESULT_MS: '2000' })
+    try {
+      const session = await play(server.port, 'COOP01')
+      try {
+        const live = await waitState(session.viewA, state => state.phase === 'play')
+        await check(session, live)
+      } finally {
+        session.a.socket.disconnect()
+        session.b.socket.disconnect()
+      }
+    } finally {
+      server.child.kill('SIGTERM')
+      await once(server.child, 'exit')
+    }
+  }
+
+  test('한 발판이나 뒤바뀐 발판으로는 문을 열 수 없고 짝꿍이 자기 발판에 동시에 서면 공동 점수를 얻는다', async () => {
+    await withRound('pair_switch', async ({ a, b, viewA, viewB, idA, idB }, live) => {
+      const [left, right] = live.objects.gates[0].pads
+      expect([left.id, right.id]).toEqual([idA, idB])
+      await walkTo(b.socket, viewA, idB, left, 6500, 0.28)
+      expect((await waitState(viewA, state => Math.hypot(player(viewA, idB).x - left.x, player(viewA, idB).z - left.z) < 0.55)).objects.gates[0].progress).toBe(0)
+      await walkTo(b.socket, viewA, idB, right, 6500, 0.28)
+      const single = await waitState(viewA, state => state.objects.gates[0].pads[1].down)
+      expect(single.objects.gates[0].progress).toBe(0)
+      await walkTo(a.socket, viewA, idA, left, 6500, 0.28)
+      await waitState(viewA, state => state.objects.gates[0].progress > 0.1)
+      a.socket.emit('input', { jump: true })
+      await waitState(viewA, state => player(viewA, idA).jumpY > 0.15 && state.objects.gates[0].progress === 0)
+      const result = await waitState(viewA, state => state.phase === 'result')
+      expect(result.result.progress).toBe(1)
+      expect(result.result.results.map(entry => entry.roundScore)).toEqual([250, 250])
+      expect(viewA.events.filter(event => event.type === 'switch_open')).toHaveLength(1)
+      await waitState(viewB, state => state.phase === 'result')
+      expect(viewB.state.objects.gates[0].opened).toBe(true)
+    })
+  }, 30000)
+
+  test('금고는 한 명이 잡으면 그대로 있고 방해물 접촉 후 다시 잡아 우회하면 배달된다', async () => {
+    await withRound('vault_delivery', async ({ a, b, viewA, viewB, idA, idB }, live) => {
+      const start = live.objects.mega
+      const aGrip = { x: -0.65, z: start.z }
+      const bGrip = { x: 0.65, z: start.z }
+      async function bothMove(x, z) {
+        await Promise.all([
+          walkTo(a.socket, viewA, idA, { x: x - 0.65, z }, 6500, 0.26),
+          walkTo(b.socket, viewA, idB, { x: x + 0.65, z }, 6500, 0.26),
+        ])
+      }
+      await walkTo(a.socket, viewA, idA, aGrip, 6500, 0.28)
+      a.socket.emit('input', { interact: true })
+      await waitState(viewA, state => state.objects.mega.carriers.includes(idA))
+      a.socket.emit('input', { z: -1 })
+      await sleep(400)
+      a.socket.emit('input', {})
+      expect(viewA.state.objects.mega).toMatchObject({ x: start.x, z: start.z, delivered: false, carriers: [idA] })
+      await walkTo(b.socket, viewA, idB, bGrip, 6500, 0.26)
+      b.socket.emit('input', { interact: true })
+      await waitState(viewA, state => state.objects.mega.carriers.length === 2)
+      expect(viewA.state.objects.hazards[0].x).not.toBe(live.objects.hazards[0].x)
+
+      // 중앙 통로를 정면으로 건너면 움직이는 장애물과 만난다.
+      await bothMove(0, 1.75)
+      await waitState(viewA, () => viewA.events.some(event => event.type === 'vault_hit'), 8000)
+      expect(viewA.state.objects.mega.carriers).toEqual([])
+      expect(viewA.state.objects.delivered).toBe(0)
+
+      const dropped = viewA.state.objects.mega
+      await bothMove(dropped.x, dropped.z + 0.65)
+      await sleep(900)
+      a.socket.emit('input', { interact: true }); b.socket.emit('input', { interact: true })
+      await waitState(viewA, state => state.objects.mega.carriers.length === 2)
+      await bothMove(5.75, dropped.z + 0.65)
+      await bothMove(5.75, -5.0)
+      await bothMove(0, -6.8)
+      const state = await waitState(viewA, value => value.objects.mega.delivered, 4500)
+      await waitState(viewA, () => viewA.events.some(event => event.type === 'round_result'), 3500)
+      const result = viewA.events.find(event => event.type === 'round_result').result
+      expect(result.progress).toBe(1)
+      expect(state.objects.mega.delivered).toBe(true)
+      expect(result.results.map(entry => entry.roundScore)).toEqual([420, 420])
+      await waitState(viewB, value => value.objects.mega.delivered)
+      expect(viewB.events.filter(event => event.type === 'vault_delivered')).toHaveLength(1)
+    })
+  }, 35000)
 })

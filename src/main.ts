@@ -7,6 +7,7 @@ import './styles/secret-mission.css'
 import './styles/tether-award.css'
 import './styles/actions.css'
 import './styles/warmup.css'
+import { newRoundObjective, playRoundCue, unlockRoundAudio } from './game/round-feedback'
 import { warmupPanel } from './game/warmup-panel'
 import { io, type Socket } from 'socket.io-client'
 import QRCode from 'qrcode'
@@ -30,6 +31,8 @@ const canvas = document.getElementById('game') as HTMLCanvasElement
 const ui = document.getElementById('ui')!
 document.body.classList.toggle('touch-input', navigator.maxTouchPoints > 0)
 const game = new PartyGame(canvas)
+window.addEventListener('pointerdown', unlockRoundAudio, { once: true })
+window.addEventListener('keydown', unlockRoundAudio, { once: true })
 
 document.title = 'MALANG MAYHEM — 말랑말랑 대환장 파티'
 ui.innerHTML = `
@@ -73,7 +76,7 @@ function connect(code: string) {
     game.setState(next)
     renderState()
   })
-  socket.on('event', event => { toast(event.text); addPrankLog(event.text, event.type); game.showPrankEffect(effectFor(event), event.x || 0, event.z || 0); if (event.type === 'round_result') show('result'); if (event.type === 'final') show('final') })
+  socket.on('event', event => { toast(event.text); addPrankLog(event.text, event.type); playRoundCue(event.type); game.showPrankEffect(effectFor(event), event.x || 0, event.z || 0); if (event.type === 'round_result') show('result'); if (event.type === 'final') show('final') })
   socket.on('room_error', err => { toast(err.message || '방에 들어갈 수 없어요.'); socket?.disconnect() })
 }
 function randomCode() { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') }
@@ -146,13 +149,15 @@ function renderState() {
     const survivalRound = ['crown', 'platform', 'bomb', 'sweeper', 'tail'].includes((state.round as any).type)
     document.getElementById('progress-text')!.textContent = survivalRound ? 'SURVIVE!' : `${current} / ${total}`
   }
-  document.getElementById('score-stack')!.innerHTML = state.players.filter(p => p.connected).sort((a, b) => b.score - a.score).map(p => `<div class="score-row ${p.id === me?.id ? 'mine' : ''}"><i style="--player:${p.color}"></i><span>${escapeHtml(p.name)}</span><b>${p.score}</b></div>`).join('')
+  const showRoundScore = state.objects?.type === 'herd'
+  const visibleScore = (p: PartyState['players'][number]) => showRoundScore ? Math.round(p.roundScore) : p.score
+  document.getElementById('score-stack')!.innerHTML = state.players.filter(p => p.connected).sort((a, b) => visibleScore(b) - visibleScore(a)).map(p => `<div class="score-row ${p.id === me?.id ? 'mine' : ''}"><i style="--player:${p.color}"></i><span>${escapeHtml(p.name)}</span><b>${visibleScore(p)}</b></div>`).join('')
   const partner = mine?.partnerId ? state.players.find(p => p.id === mine.partnerId) : null
   const tetherLine = document.getElementById('tether-line')
   if (tetherLine) {
     const pair = (state.pairs || []).find(p => p.a === mine?.id || p.b === mine?.id)
     const mega = (state.objects || {}).mega
-    const megaFlag = mega && !mega.delivered ? `<span class="mega-flag">${mega.carriers?.length >= 2 ? `${mega.name} 짝꿍 운반 중` : mega.carriers?.length === 1 ? `${mega.name} 혼자 끄는 중` : `${mega.name} · 2명이서 E`}</span>` : mega?.delivered ? '<span class="mega-flag">황금 소품 배달 완료</span>' : ''
+    const megaFlag = mega && !mega.delivered ? `<span class="mega-flag">${mega.carriers?.length >= 2 ? `${mega.name} 짝꿍 운반 중` : mega.carriers?.length === 1 ? (objIsVault(state) ? '손잡이 하나 대기 중' : `${mega.name} 혼자 끄는 중`) : `${mega.name} · 2명이서 E`}</span>` : mega?.delivered ? '<span class="mega-flag">황금 소품 배달 완료</span>' : ''
     if (partner) {
       const length = pair?.length ?? Math.hypot((mine?.x || 0) - partner.x, (mine?.z || 0) - partner.z)
       const tension = pair?.tension ?? 0
@@ -191,6 +196,7 @@ function renderState() {
   paintCooldowns()
   renderObjective(state, mine)
 }
+const objIsVault = (state: PartyState) => state.objects?.type === 'vault'
 function updateCooldownState(state: PartyState, mine: PartyState['players'][number] | undefined) {
   // 서버가 준 쿨타임 표를 기준으로, 클라이언트에서도 같은 시간만큼 즉시 잠근다.
   cooldownTable = { ...FALLBACK_CD_MS, ...((state as any).cooldownMs || {}) }
@@ -201,7 +207,7 @@ function renderResult(next: PartyState) {
   const result = next.result
   if (!result) return
   document.getElementById('result-title')!.textContent = result.title
-  document.getElementById('result-summary')!.textContent = result.mode === 'coop' ? `공동 목표 달성률 ${(result.progress * 100).toFixed(0)}% · 고무줄 짝꿍 합동 운반 보너스 포함` : '이번 라운드에서 가장 말랑했던 순서'
+  document.getElementById('result-summary')!.textContent = result.mode === 'coop' ? `공동 목표 달성률 ${(result.progress * 100).toFixed(0)}%` : '이번 라운드에서 가장 말랑했던 순서'
   const recap = document.getElementById('recap-list')
   if (recap) recap.innerHTML = (result.recap || []).map((row: any) => `<div class="recap-row"><span>${escapeHtml(row.label)}</span><b>${escapeHtml(row.name || '')}</b><em>${escapeHtml(row.value || '')}</em></div>`).join('')
   document.getElementById('result-list')!.innerHTML = result.results.map((r: any, i: number) => `<div class="result-row"><strong>${i + 1}</strong><i style="--player:${r.color}"></i><span>${escapeHtml(r.name)}${r.missionComplete ? ' · 비밀 미션 달성' : ''}</span><b>+${r.points}</b><em>${r.total} P</em></div>`).join('')
@@ -223,6 +229,7 @@ function escapeHtml(value: string) { return value.replace(/[&<>"']/g, c => ({ '&
 const PRANK_NAMES: Record<string, string> = { headbutt: '박치기', bonk: '꿀밤', tackle: '태클', hug: '포옹' }
 const PRANK_ICONS: Record<string, string> = { headbutt: '😈', bonk: '🔨', tackle: '🦵', hug: '🫂' }
 // 서버 ACTION_COOLDOWN_MS와 같은 기본값. state.cooldownMs가 오면 그 값이 우선한다.
+const mobilePrank = () => state?.phase === 'lobby' && document.body.classList.contains('touch-input') ? 'headbutt' : input.prankType
 const FALLBACK_CD_MS: Record<string, number> = { headbutt: 1500, bonk: 2000, tackle: 2800, hug: 2500, grab: 800, jump: 180 }
 let cooldownTable: Record<string, number> = { ...FALLBACK_CD_MS }
 // 마지막 스냅샷이 알려 준 남은 쿨타임. 내가 직접 발동한 동작은 로컬 잠금이 우선이라
@@ -256,11 +263,12 @@ function selectPrank(type: string, trigger = false) {
   document.querySelectorAll<HTMLElement>('[data-prank]').forEach(el => el.classList.toggle('is-selected', el.dataset.prank === type))
   const prankButton = document.getElementById('prank-btn')
   const label = document.getElementById('prank-btn-label')
-  const skillName = PRANK_NAMES[type] || '장난'
+  const primary = mobilePrank()
+  const skillName = PRANK_NAMES[primary] || '장난'
   if (prankButton) prankButton.dataset.label = skillName
   if (label) label.textContent = skillName
   const icon = document.querySelector('#prank-btn .ar-icon')
-  if (icon) icon.textContent = PRANK_ICONS[type] || '😈'
+  if (icon) icon.textContent = PRANK_ICONS[primary] || '😈'
   if (!trigger) { paintCooldowns(); return }
   const remain = remainingMs(type)
   if (remain > 0 || meRespawning) { flashBlocked(type); paintCooldowns(); return }
@@ -313,7 +321,14 @@ function paintCooldowns() {
     label.textContent = text
     if (remain > 0) shownCd[type] = text
   }
-  paintAction('prank-btn', input.prankType, PRANK_NAMES[input.prankType] || '장난')
+  const primary = mobilePrank()
+  const prankButton = document.getElementById('prank-btn')
+  if (prankButton) {
+    prankButton.dataset.label = PRANK_NAMES[primary]
+    const icon = prankButton.querySelector('.ar-icon')
+    if (icon) icon.textContent = PRANK_ICONS[primary]
+  }
+  paintAction('prank-btn', primary, PRANK_NAMES[primary])
   paintAction('interact-btn', 'grab', '잡기')
   paintAction('jump-btn', 'jump', '점프')
 }
@@ -324,6 +339,12 @@ function renderObjective(state: PartyState, mine: any) {
   const text = document.getElementById('progress-text')
   const objective = document.getElementById('objective-text')
   if (!bar || !text || !objective) return
+  const next = newRoundObjective(state, mine)
+  if (next) {
+    text.textContent = next.text
+    bar.style.width = `${next.meter * 100}%`
+    return
+  }
   if (objects.type === 'bomb' && objects.bomb) {
     const fuse = Number(objects.bomb.fuse || 0)
     const holder = objects.bomb.holderName || '없음'
@@ -362,7 +383,7 @@ function rename() {
   persist()
   toast(`닉네임을 ${value}(으)로 바꿨어요!`)
 }
-const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop', bomb_boom: 'boom', bomb_pass: 'bomb', sweeper_hit: 'sweeper', sweeper_assist: 'sweeper', sweeper_warn: 'sweeper', tail_steal: 'tail', tail_bonus: 'tail' }
+const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop', bomb_boom: 'boom', bomb_pass: 'bomb', sweeper_hit: 'sweeper', sweeper_assist: 'sweeper', sweeper_warn: 'sweeper', tail_steal: 'tail', tail_bonus: 'tail', herd_score: 'herd_score', switch_open: 'switch_open', vault_hit: 'vault_hit', vault_grab: 'mega_grab', vault_delivered: 'mega' }
 function effectFor(event: any) { return event.itemType || EVENT_EFFECTS[event.type] || 'reverse' }
 function leave() { socket?.disconnect(); socket = null; state = null; me = null; keys.clear(); game.clearState(); show('title'); toast('다음 파티를 기다리고 있어요.') }
 function addPrankLog(message: string, type: string) { if (!['prank', 'prank_item', 'crown', 'mega', 'mega_grab', 'tether', 'fall', 'respawn'].includes(type)) return; const log = document.getElementById('prank-log'); if (!log) return; const line = document.createElement('div'); line.textContent = message; log.prepend(line); while (log.children.length > 3) log.lastElementChild?.remove() }
@@ -496,7 +517,7 @@ function setupTouch() {
 
   bindPress(document.getElementById('jump-btn'), () => pressAction('jump'))
   bindPress(document.getElementById('interact-btn'), () => pressAction('interact'))
-  bindPress(document.getElementById('prank-btn'), () => selectPrank(input.prankType, true))
+  bindPress(document.getElementById('prank-btn'), () => selectPrank(mobilePrank(), true))
   document.querySelectorAll<HTMLElement>('[data-prank]').forEach(button => bindPress(button, () => selectPrank(button.dataset.prank || 'headbutt', true)))
 }
 setupTouch()

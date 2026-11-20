@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Character, CHARACTER_HEIGHT, type ClipName } from '../engine/character'
+import { RoundObjects } from './round-objects'
 import { createProp, createTail, ingredientProp, prankItemProp } from '../engine/props'
 
 export type Player = {
@@ -46,6 +47,7 @@ export class PartyGame {
   readonly scene = new THREE.Scene()
   readonly camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 120)
   readonly root = new THREE.Group()
+  private readonly roundObjects = new RoundObjects(this.root)
   private readonly loader = new GLTFLoader()
   private readonly views = new Map<string, View>()
   private readonly props = new Map<string, THREE.Object3D>()
@@ -292,8 +294,17 @@ export class PartyGame {
   }
 
   private clearProps(): void {
+    this.roundObjects.clear()
     for (const [key, object] of this.props) {
       object.removeFromParent()
+      if (object.userData.kind === 'golden_vault') {
+        object.traverse(child => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose()
+            child.material.dispose()
+          }
+        })
+      }
       if (key.startsWith('practice:')) {
         object.traverse(child => { if (child instanceof THREE.Mesh) child.geometry.dispose() })
       }
@@ -316,7 +327,8 @@ export class PartyGame {
   }
 
   showPrankEffect(type: string, x = 0, z = 0): void {
-    const color = type === 'jelly_pool' ? '#b76cff' : type === 'banana_peel' ? '#ffd35c' : type === 'reverse' ? '#57c7ff' : type === 'bonk' ? '#ffd35c' : type === 'tackle' ? '#ff7b68' : type === 'hug' || type === 'grab' ? '#ff9dd0' : type === 'shatter' ? '#fff2c4' : type === 'mega' ? '#ffcf4b' : type === 'mega_grab' || type === 'tether' ? '#ff87bd' : type === 'mega_drop' ? '#ff9d5c' : type === 'respawn' ? '#62e8aa' : type === 'fall' ? '#ff5d6c' : type === 'bomb' || type === 'boom' ? '#ff9d2e' : type === 'sweeper' ? '#ff5d6c' : type === 'tail' || type === 'steal' ? '#ff5d8f' : '#ff5d8f'
+    const roundColors: Record<string, string> = { herd_score: '#ffcf4b', switch_open: '#62e8aa', vault_hit: '#ff694d' }
+    const color = roundColors[type] || (type === 'jelly_pool' ? '#b76cff' : type === 'banana_peel' ? '#ffd35c' : type === 'reverse' ? '#57c7ff' : type === 'bonk' ? '#ffd35c' : type === 'tackle' ? '#ff7b68' : type === 'hug' || type === 'grab' ? '#ff9dd0' : type === 'shatter' ? '#fff2c4' : type === 'mega' ? '#ffcf4b' : type === 'mega_grab' || type === 'tether' ? '#ff87bd' : type === 'mega_drop' ? '#ff9d5c' : type === 'respawn' ? '#62e8aa' : type === 'fall' ? '#ff5d6c' : type === 'bomb' || type === 'boom' ? '#ff9d2e' : type === 'sweeper' ? '#ff5d6c' : type === 'tail' || type === 'steal' ? '#ff5d8f' : '#ff5d8f')
     const radius = type === 'shockwave' || type === 'tackle' ? 1.8 : type === 'hug' ? 1.1 : type === 'mega' ? 2.3 : type === 'tether' ? 1.2 : type === 'boom' ? 2.8 : type === 'sweeper' ? 1.5 : 0.65
     const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.09, 10, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.92 }))
     ring.rotation.x = -Math.PI / 2
@@ -352,6 +364,7 @@ export class PartyGame {
 
   private syncWorld(state: PartyState): void {
     const objects = state.objects || {}
+    this.roundObjects.sync(objects, this.me)
     const keep = new Set<string>()
     const addItem = (item: any, kind: string, y = 0.8) => {
       const key = `${objects.type}:${item.id}`
@@ -498,14 +511,15 @@ export class PartyGame {
     let x = mega.x
     let z = mega.z
     let y = 0.45
-    if (carriers.length) {
+    if (carriers.length && mega.kind !== 'golden_vault') {
       x = carriers.reduce((n, view) => n + view.character.root.position.x, 0) / carriers.length
       z = carriers.reduce((n, view) => n + view.character.root.position.z, 0) / carriers.length
       y = 1.15 + Math.sin(performance.now() / 220) * 0.06
     }
+    if (mega.kind === 'golden_vault' && carriers.length === 2) y = 0.93
     if (mega.delivered) y = 1.7 + Math.sin(performance.now() / 260) * 0.18
     object.position.set(x, y, z)
-    object.rotation.y += 0.012
+    if (mega.kind !== 'golden_vault') object.rotation.y += 0.012
     if (mega.wobbleUntil > Date.now()) object.rotation.z = Math.sin(performance.now() / 40) * 0.28
     else object.rotation.z *= 0.9
     keep.add('mega-zone')
@@ -522,7 +536,7 @@ export class PartyGame {
   }
 
   private megaProp(kind: string): THREE.Object3D {
-    return createProp(kind === 'golden_pizza' ? 'golden_pizza' : 'golden_trophy')
+    return createProp(kind)
   }
 
   /** 고무줄 짝꿍 — 서버가 짝지어 준 두 캐릭터를 탄성 밴드로 잇는다. */
@@ -541,7 +555,7 @@ export class PartyGame {
       }
       const playerA = state.players.find(player => player.id === pair.a)
       const playerB = state.players.find(player => player.id === pair.b)
-      band.mesh.visible = !playerA?.respawning && !playerB?.respawning && Boolean(this.views.get(pair.a)) && Boolean(this.views.get(pair.b))
+      band.mesh.visible = playerA?.connected === true && playerB?.connected === true && !playerA.respawning && !playerB.respawning && Boolean(this.views.get(pair.a)) && Boolean(this.views.get(pair.b))
       band.material.color.set(pair.tension > 0.6 ? '#ff5d6c' : pair.tension > 0.25 ? '#ffbd4a' : '#ff87bd')
       band.material.emissiveIntensity = 0.25 + pair.tension * 0.55
     }
@@ -630,11 +644,14 @@ export class PartyGame {
       if (material) material.opacity = Math.max(0, 1 - progress)
       if (progress >= 1) {
         effect.object.removeFromParent()
+        if (effect.object instanceof THREE.Mesh) effect.object.geometry.dispose()
+        material.dispose()
         this.effects.splice(i, 1)
       }
     }
     this.updateBands()
     this.updateTails()
+    this.roundObjects.update(dt, performance.now() / 1000)
   }
 
   /** 꼬리는 캐릭터 허리 뒤에 붙어 같이 흔들린다. */
