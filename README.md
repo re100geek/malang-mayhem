@@ -9,18 +9,27 @@ pnpm install
 pnpm --dir server install --frozen-lockfile
 ```
 
-Blender 에셋을 다시 만들려면:
+캐릭터 GLB를 다시 만들려면 (Blender 4.2 LTS, headless):
 
 ```bash
-blender -b --python assets/blender/malang_mayhem_assets.py
+blender --background --factory-startup --python scripts/blender/build_humanoid_creature.py
+python3 scripts/blender/verify_glb_structure.py public/assets/models/malang_mayhem.glb
 ```
 
-이 명령은 다음 파일을 생성합니다.
+`build_humanoid_creature.py`는 기존 GLB의 아레나·소품은 그대로 두고 `HumanoidRig`(12본)와
+`Idle`/`Run`/`Jump`/`Bonk`/`Hit` 5개 클립만 새로 구워 `public/assets/models/malang_mayhem.glb`에 덮어씁니다.
+`verify_glb_structure.py`는 Blender 없이 GLB 바이너리를 직접 파싱해 접지(y=0)·정면(+Z)·좌우 대칭·클립 폭을 확인합니다.
 
-- `assets/models/malang_mayhem.glb` — Three.js 런타임 모델 라이브러리 (배포 시 `public/assets/models/`로 복사)
-- `assets/blender/malang_mayhem_assets.blend` — Blender 원본
-- `assets/share/favicon.png`, `assets/share/og.png` — Blender Eevee 렌더 (배포 시 `public/assets/`로 복사)
-- `shots/humanoid-front.png`, `side`, `back`, `top`, `three-quarter` — 휴머노이드 레퍼런스 비교 렌더
+## 캐릭터 리그와 모션 (`src/engine/character.ts`)
+
+- GLB의 `HumanoidRig`를 `SkeletonUtils.clone`으로 플레이어·AI 봇마다 복제하고, `AnimationMixer`로 5개 클립을 재생합니다.
+  원샷 클립(Bonk/Hit)은 끝나면 자동으로 달리기·대기로 돌아옵니다.
+- 클립만으로 부족한 부분은 매 프레임 본 회전을 덧입혀 보강합니다: 달리기 다리·팔 스윙, 점프 스트레치,
+  착지 스쿼시, 꿀밤·피격 흔들림, 대기 시 숨쉬기. 이동 방향으로 몸을 돌리고 발밑 접지 그림자를 함께 그립니다.
+- 좌표 규칙은 **정면 +Z, 위 +Y, 발바닥 y=0**입니다. 모델을 눕히거나 축을 돌리는 보정은 넣지 않습니다.
+- HUD는 `.hud-top`(라운드/타이머/초대) · `.hud-panels`(그리드: 목표·비밀 미션·점수·상태) · `.hud-bottom`(조작 힌트·장난 픽커)로
+  나뉘어 있어 데스크톱과 모바일 어느 쪽에서도 패널이 겹치지 않습니다. `?debug`를 붙이면 `window.__mm.debugSnapshot()`으로
+  본 회전·클립·화면 좌표를 확인할 수 있습니다.
 
 ## 개발 서버 실행
 
