@@ -7,7 +7,10 @@ import './styles/secret-mission.css'
 import './styles/tether-award.css'
 import './styles/actions.css'
 import './styles/warmup.css'
-import { newRoundObjective, playRoundCue, unlockRoundAudio } from './game/round-feedback'
+import './styles/match-update.css'
+import { newRoundObjective } from './game/round-feedback'
+import { audioButton, GameAudio } from './game/game-audio'
+import { matchSelect, matchSettings } from './game/match-settings'
 import { warmupPanel } from './game/warmup-panel'
 import { io, type Socket } from 'socket.io-client'
 import QRCode from 'qrcode'
@@ -31,17 +34,21 @@ const canvas = document.getElementById('game') as HTMLCanvasElement
 const ui = document.getElementById('ui')!
 document.body.classList.toggle('touch-input', navigator.maxTouchPoints > 0)
 const game = new PartyGame(canvas)
-window.addEventListener('pointerdown', unlockRoundAudio, { once: true })
-window.addEventListener('keydown', unlockRoundAudio, { once: true })
+const audio = new GameAudio(Boolean(saved.muted))
+window.addEventListener('pointerdown', audio.unlock)
+window.addEventListener('pointerup', audio.unlock)
+window.addEventListener('keydown', audio.unlock)
 
 document.title = 'MALANG MAYHEM — 말랑말랑 대환장 파티'
 ui.innerHTML = `
   <section class="screen boot-screen is-active" data-screen="boot"><div class="loader-mark">M</div><h1>MALANG MAYHEM</h1><p>말랑말랑 대환장 파티</p><div class="loading-line"><i></i></div><small>젤리 월드 준비 중...</small></section>
-  <section class="screen title-screen" data-screen="title"><div class="title-copy"><div class="eyebrow">MALANG MAYHEM / PARTY PROTOCOL 01</div><h1>MALANG<br><em>MAYHEM</em></h1><p>친구들이랑 말랑하게 부딪히고, 웃기게 우승하세요.</p><div class="title-actions"><button class="primary" data-action="create">방 만들기 <span>→</span></button><button data-action="single">혼자 플레이 <span>1인 모드</span></button><button data-action="join">방 코드로 참가</button></div><div class="single-options"><label for="bot-difficulty"><span>봇 난이도</span><select id="bot-difficulty"><option value="easy">쉽게 · 봇 1명</option><option value="normal" selected>보통 · 봇 2명</option><option value="hard">어렵게 · 봇 3명</option></select></label></div><div class="join-row"><input id="join-code" maxlength="6" placeholder="6자리 방 코드" autocomplete="off"><button data-action="join-code">입장</button></div><div class="profile-card"><label>닉네임 <input id="nickname" maxlength="14" value="${escapeHtml(String(saved.name || '말랑이'))}"></label><div><span>내 색상</span><div class="color-picks">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div></div></div><div class="title-badge"><b>5</b><span>ROUNDS</span><small>1–8 PLAYERS</small></div><div class="title-blob blob-a"></div><div class="title-blob blob-b"></div></section>
+  <section class="screen title-screen" data-screen="title">${audioButton}<div class="title-copy"><div class="eyebrow">MALANG MAYHEM / PARTY PROTOCOL 01</div><h1>MALANG<br><em>MAYHEM</em></h1><p>친구들이랑 말랑하게 부딪히고, 웃기게 우승하세요.</p><div class="title-actions"><button class="primary" data-action="create">방 만들기 <span>→</span></button><button data-action="single">혼자 플레이 <span>1인 모드</span></button><button data-action="join">방 코드로 참가</button></div><div class="single-options"><label for="bot-difficulty"><span>봇 난이도</span><select id="bot-difficulty"><option value="easy">쉽게</option><option value="normal" selected>보통</option><option value="hard">어렵게</option></select></label>
+    ${matchSettings('title')}
+  </div><div class="join-row"><input id="join-code" maxlength="6" placeholder="6자리 방 코드" autocomplete="off"><button data-action="join-code">입장</button></div><div class="profile-card"><label>닉네임 <input id="nickname" maxlength="14" value="${escapeHtml(String(saved.name || '말랑이'))}"></label><div><span>내 색상</span><div class="color-picks">${COLORS.map((c, i) => `<button class="color-pick" data-color="${i}" style="--pick:${c}" aria-label="${COLOR_NAMES[i]}"></button>`).join('')}</div></div></div></div><div class="title-badge"><b id="title-round-badge">5</b><span>ROUNDS</span><small>1–8 PLAYERS</small></div><div class="title-blob blob-a"></div><div class="title-blob blob-b"></div></section>
   ${warmupPanel(COLORS, COLOR_NAMES)}
-  <section class="screen hud-screen" data-screen="hud"><div class="hud-top"><div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker" id="prank-picker"><button data-prank="headbutt"><span class="pk-key">Q</span><span class="pk-name">박치기</span><i class="pk-cd"></i></button><button data-prank="bonk"><span class="pk-key">1</span><span class="pk-name">꿀밤</span><i class="pk-cd"></i></button><button data-prank="tackle"><span class="pk-key">2</span><span class="pk-name">태클</span><i class="pk-cd"></i></button><button data-prank="hug"><span class="pk-key">3</span><span class="pk-name">포옹</span><i class="pk-cd"></i></button></div></div><div class="mobile-controls" id="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round jump" id="jump-btn" type="button" data-label="점프"><span class="ar-icon">⬆</span><span class="ar-label">점프</span><i class="cd-veil"></i></button><button class="action-round pink grab" id="interact-btn" type="button" data-label="잡기"><span class="ar-icon">✋</span><span class="ar-label">잡기</span><i class="cd-veil"></i></button><button class="action-round prank" id="prank-btn" type="button"><span class="ar-icon">😈</span><span class="ar-label" id="prank-btn-label" data-prank-label="박치기">박치기</span><i class="cd-veil"></i></button></div></section>
-  <section class="screen result-screen" data-screen="result"><div class="result-card"><span class="eyebrow" id="result-kicker">ROUND COMPLETE</span><h2 id="result-title">라운드 결과</h2><p id="result-summary">말랑한 결과가 도착했어요.</p><div id="recap-list" class="recap-list"></div><div id="result-list" class="result-list"></div><button class="primary" data-action="result-close">다음 라운드로 →</button></div></section>
-  <section class="screen final-screen" data-screen="final"><div class="confetti confetti-a"></div><div class="final-card"><span class="eyebrow">MALANG CHAMPIONSHIP</span><h2>최종 시상식</h2><p>오늘의 젤리 챔피언은...</p><div id="final-winner" class="winner-name">공동 우승!</div><div id="best-prankster" class="prank-award">최고의 장난꾸러기 — 아직 미정</div><div class="award-board" id="award-board"></div><div class="highlight-list" id="highlight-list"></div><div id="final-list" class="final-list"></div><button class="primary" data-action="rematch">다시 말랑하게!</button><button class="text-btn" data-action="leave">타이틀로</button></div></section>
+  <section class="screen hud-screen" data-screen="hud"><div class="hud-top">${audioButton}<div class="hud-center"><div class="round-pill"><span id="round-count">ROUND 1 / 5</span><b id="round-title">미끄덩 바나나 배달</b></div><div class="timer" id="timer">75</div></div><button class="hud-btn" data-action="copy">초대 링크</button></div><div class="hud-panels"><div class="objective"><span class="eyebrow">OBJECTIVE</span><b id="objective-text">바나나를 들고 배달존으로!</b><div class="progress-track"><i id="progress-bar"></i></div><span id="progress-text">0 / 18</span><span id="tether-line" class="tether-line"></span></div><div class="secret-mission" id="secret-mission"><span class="eyebrow">SECRET PRANK</span><b>미션을 불러오는 중…</b><small>달성 시 +250P</small></div><div class="score-stack" id="score-stack"></div><div class="status-stack" id="status-stack"></div></div><div class="prank-log" id="prank-log"></div><div class="event-toast" id="event-toast"></div><div class="hud-bottom"><div class="controls-hint"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 점프 <kbd>E</kbd> 잡기/줍기 <kbd>Q</kbd> 장난 · <kbd>1</kbd> 꿀밤 <kbd>2</kbd> 태클 <kbd>3</kbd> 포옹</div><div class="prank-picker" id="prank-picker"><button data-prank="headbutt"><span class="pk-key">Q</span><span class="pk-name">박치기</span><i class="pk-cd"></i></button><button data-prank="bonk"><span class="pk-key">1</span><span class="pk-name">꿀밤</span><i class="pk-cd"></i></button><button data-prank="tackle"><span class="pk-key">2</span><span class="pk-name">태클</span><i class="pk-cd"></i></button><button data-prank="hug"><span class="pk-key">3</span><span class="pk-name">포옹</span><i class="pk-cd"></i></button></div></div><div class="mobile-controls" id="mobile-controls"><div class="stick" id="stick"><i></i></div><button class="action-round jump" id="jump-btn" type="button" data-label="점프"><span class="ar-icon">⬆</span><span class="ar-label">점프</span><i class="cd-veil"></i></button><button class="action-round pink grab" id="interact-btn" type="button" data-label="잡기"><span class="ar-icon">✋</span><span class="ar-label">잡기</span><i class="cd-veil"></i></button><button class="action-round prank" id="prank-btn" type="button"><span class="ar-icon">😈</span><span class="ar-label" id="prank-btn-label" data-prank-label="박치기">박치기</span><i class="cd-veil"></i></button></div></section>
+  <section class="screen result-screen" data-screen="result"><div class="result-card"><span class="eyebrow" id="result-kicker">ROUND COMPLETE</span><h2 id="result-title">라운드 결과</h2><p id="result-summary">말랑한 결과가 도착했어요.</p><div id="recap-list" class="recap-list"></div><div class="next-round-banner"><span id="result-next-heading"></span><strong id="result-next-title"></strong></div><h3 class="result-table-heading">누적 순위</h3><div class="result-columns"><span>이번 라운드</span><span>누적 점수</span></div><div id="result-list" class="result-list"></div></div></section>
+  <section class="screen final-screen" data-screen="final"><div class="confetti confetti-a"></div><div class="final-card"><span class="eyebrow">MALANG CHAMPIONSHIP</span><h2>대환장 어워드</h2><p>오늘의 젤리 챔피언은...</p><div id="final-winner" class="winner-name">공동 우승!</div><div id="best-prankster" class="prank-award">최고의 장난꾸러기 — 아직 미정</div><div class="award-board" id="award-board"></div><div class="highlight-list" id="highlight-list"></div><div id="final-list" class="final-list"></div><button class="primary" data-action="rematch">다시 하기</button><p id="rematch-hint" hidden>방장이 다시 하기를 누르면 새 매치가 시작돼요.</p><button class="text-btn" data-action="leave">타이틀로</button></div></section>
   <div class="toast" id="toast"></div>
   <div class="respawn-hud" id="respawn-hud"></div>
 `
@@ -58,25 +65,43 @@ function show(name: string) {
   }
 }
 function profile() { const name = (document.getElementById('nickname') as HTMLInputElement).value.trim() || '말랑이'; const selected = document.querySelector<HTMLElement>('.color-pick.is-selected'); return { name, colorIndex: Number(selected?.dataset.color || 0) } }
-function persist() { const p = profile(); localStorage.setItem('malang-mayhem', JSON.stringify({ ...saved, ...p, resumeToken, room: roomCode })) }
+function persist() { const p = profile(); localStorage.setItem('malang-mayhem', JSON.stringify({ ...saved, ...p, muted: audio.muted, resumeToken, room: roomCode })) }
 function toast(message: string) { const el = document.getElementById('toast')!; el.textContent = message; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2300) }
-function connect(code: string) {
+function connect(code: string, create = false) {
   roomCode = code || randomCode(); persist()
   socket?.disconnect()
   const botDifficulty = (document.getElementById('bot-difficulty') as HTMLSelectElement | null)?.value || 'normal'
-  socket = io({ path: '/socket.io', transports: ['websocket', 'polling'], auth: { room: roomCode, resumeToken, botDifficulty, ...profile() } })
+  const settings = create ? {
+    roundCount: Number(matchSelect('title', 'round-count').value),
+    botCount: Number(matchSelect('title', 'bot-count').value),
+  } : undefined
+  socket = io({ path: '/socket.io', transports: ['websocket', 'polling'], auth: { room: roomCode, resumeToken, botDifficulty, matchSettings: settings, ...profile() } })
   socket.on('connect_error', () => toast('서버에 연결할 수 없어요. 게임 서버가 실행 중인지 확인하세요.'))
   socket.on('welcome', message => { if (message.marker !== 'malang-mayhem-v1') return; roomCode = message.code; resumeToken = message.resumeToken; me = message.player; game.setPlayerId(me.id); persist(); show('lobby'); toast(message.resumed ? '다시 접속했어요!' : `${me.name}님, 입장 완료!`) })
   socket.on('state', next => {
-    if (state?.phase !== next.phase && (state?.phase === 'lobby' || next.phase === 'lobby')) {
+    if (state?.phase !== next.phase && ['lobby', 'countdown'].includes(next.phase)) {
+      input.jump = input.interact = input.prank = false
       for (const type of Object.keys(localCds)) delete localCds[type]
       document.querySelector('.lobby-details')?.removeAttribute('open')
     }
     state = next
     game.setState(next)
+    audio.bomb(next.phase === 'play' ? next.objects?.bomb?.fuse ?? 0 : 0)
     renderState()
   })
-  socket.on('event', event => { toast(event.text); addPrankLog(event.text, event.type); playRoundCue(event.type); game.showPrankEffect(effectFor(event), event.x || 0, event.z || 0); if (event.type === 'round_result') show('result'); if (event.type === 'final') show('final') })
+  socket.on('cue', (type: string) => audio.play(type))
+  socket.on('event', event => {
+    toast(event.text)
+    addPrankLog(event.text, event.type)
+    audio.event(event.type, event.itemType)
+    if (!Number.isFinite(event.x) || !Number.isFinite(event.z)) return
+    game.showPrankEffect(effectFor(event), event.x, event.z)
+    if (['prank', 'bomb_boom', 'sweeper_hit', 'sweeper_assist', 'vault_hit', 'throw'].includes(event.type)) {
+      const mine = state?.players.find(player => player.id === me?.id)
+      const nearby = Boolean(mine && Math.hypot(mine.x - event.x, mine.z - event.z) <= 7)
+      game.showImpact(event.x, event.z, event.type === 'bomb_boom', nearby)
+    }
+  })
   socket.on('room_error', err => { toast(err.message || '방에 들어갈 수 없어요.'); socket?.disconnect() })
 }
 function randomCode() { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') }
@@ -132,12 +157,19 @@ function renderState() {
   updateCooldownState(state, mine)
   startBtn.disabled = !host || state.players.filter(p => p.connected).length < 1
   startBtn.textContent = host ? (state.players.filter(p => p.connected).length === 1 ? '1인 시작' : '게임 시작') : '방장이 시작할 때까지 대기'
-  if (state.phase === 'lobby') { show('lobby'); paintCooldowns(); return }
+  if (state.phase === 'lobby') {
+    const roundSelect = matchSelect('lobby', 'round-count')
+    const botSelect = matchSelect('lobby', 'bot-count')
+    roundSelect.disabled = botSelect.disabled = !host
+    roundSelect.value = String(state.matchSettings?.roundCount ?? 5)
+    botSelect.value = String(state.matchSettings?.botCount ?? 2)
+    show('lobby'); paintCooldowns(); return
+  }
   if (state.phase === 'result') { renderResult(state); show('result'); return }
   if (state.phase === 'final') { renderFinal(state); show('final'); return }
   show('hud')
   if (state.round) {
-    document.getElementById('round-count')!.textContent = `ROUND ${state.roundIndex + 1} / 5`
+    document.getElementById('round-count')!.textContent = `ROUND ${state.roundIndex + 1} / ${state.plan?.length ?? 5}`
     document.getElementById('round-title')!.textContent = state.round.title
     document.getElementById('objective-text')!.textContent = state.round.short
     const seconds = state.phase === 'countdown' ? Math.ceil(state.round.timeLeft) : Math.ceil(state.round.timeLeft)
@@ -206,14 +238,22 @@ function updateCooldownState(state: PartyState, mine: PartyState['players'][numb
 function renderResult(next: PartyState) {
   const result = next.result
   if (!result) return
+  const upcoming = next.plan?.[next.roundIndex + 1]
+  document.getElementById('result-next-heading')!.textContent = upcoming
+    ? `다음 라운드 · ${next.roundIndex + 2}/${next.plan?.length} · ${upcoming.mode === 'coop' ? '협동전' : '개인전'}`
+    : '잠시 후'
+  document.getElementById('result-next-title')!.textContent = upcoming?.title ?? '대환장 어워드'
   document.getElementById('result-title')!.textContent = result.title
-  document.getElementById('result-summary')!.textContent = result.mode === 'coop' ? `공동 목표 달성률 ${(result.progress * 100).toFixed(0)}%` : '이번 라운드에서 가장 말랑했던 순서'
+  document.getElementById('result-summary')!.textContent = result.mode === 'coop' ? `공동 목표 달성률 ${(result.progress * 100).toFixed(0)}%` : `라운드 ${next.roundIndex + 1} 종료`
   const recap = document.getElementById('recap-list')
   if (recap) recap.innerHTML = (result.recap || []).map((row: any) => `<div class="recap-row"><span>${escapeHtml(row.label)}</span><b>${escapeHtml(row.name || '')}</b><em>${escapeHtml(row.value || '')}</em></div>`).join('')
   document.getElementById('result-list')!.innerHTML = result.results.map((r: any, i: number) => `<div class="result-row"><strong>${i + 1}</strong><i style="--player:${r.color}"></i><span>${escapeHtml(r.name)}${r.missionComplete ? ' · 비밀 미션 달성' : ''}</span><b>+${r.points}</b><em>${r.total} P</em></div>`).join('')
 }
 function renderFinal(next: PartyState) {
   const result = next.result
+  const host = next.hostId === me?.id
+  document.querySelector<HTMLButtonElement>('[data-action="rematch"]')!.hidden = !host
+  document.getElementById('rematch-hint')!.hidden = host
   const rankings = result?.rankings || []
   const winners = result?.winners || []
   document.getElementById('final-winner')!.textContent = winners.length > 1 ? '공동 우승!' : rankings[0]?.name || '말랑 챔피언'
@@ -229,7 +269,7 @@ function escapeHtml(value: string) { return value.replace(/[&<>"']/g, c => ({ '&
 const PRANK_NAMES: Record<string, string> = { headbutt: '박치기', bonk: '꿀밤', tackle: '태클', hug: '포옹' }
 const PRANK_ICONS: Record<string, string> = { headbutt: '😈', bonk: '🔨', tackle: '🦵', hug: '🫂' }
 // 서버 ACTION_COOLDOWN_MS와 같은 기본값. state.cooldownMs가 오면 그 값이 우선한다.
-const mobilePrank = () => state?.phase === 'lobby' && document.body.classList.contains('touch-input') ? 'headbutt' : input.prankType
+const mobilePrank = () => 'headbutt'
 const FALLBACK_CD_MS: Record<string, number> = { headbutt: 1500, bonk: 2000, tackle: 2800, hug: 2500, grab: 800, jump: 180 }
 let cooldownTable: Record<string, number> = { ...FALLBACK_CD_MS }
 // 마지막 스냅샷이 알려 준 남은 쿨타임. 내가 직접 발동한 동작은 로컬 잠금이 우선이라
@@ -384,7 +424,7 @@ function rename() {
   toast(`닉네임을 ${value}(으)로 바꿨어요!`)
 }
 const EVENT_EFFECTS: Record<string, string> = { shatter: 'shatter', grab: 'grab', prank: 'shockwave', tether: 'tether', fall: 'fall', respawn: 'respawn', mega: 'mega', mega_grab: 'mega_grab', mega_drop: 'mega_drop', bomb_boom: 'boom', bomb_pass: 'bomb', sweeper_hit: 'sweeper', sweeper_assist: 'sweeper', sweeper_warn: 'sweeper', tail_steal: 'tail', tail_bonus: 'tail', herd_score: 'herd_score', switch_open: 'switch_open', vault_hit: 'vault_hit', vault_grab: 'mega_grab', vault_delivered: 'mega' }
-function effectFor(event: any) { return event.itemType || EVENT_EFFECTS[event.type] || 'reverse' }
+function effectFor(event: any) { return event.type === 'bomb_boom' ? 'boom' : event.itemType === 'headbutt' ? 'shockwave' : event.itemType || EVENT_EFFECTS[event.type] || 'reverse' }
 function leave() { socket?.disconnect(); socket = null; state = null; me = null; keys.clear(); game.clearState(); show('title'); toast('다음 파티를 기다리고 있어요.') }
 function addPrankLog(message: string, type: string) { if (!['prank', 'prank_item', 'crown', 'mega', 'mega_grab', 'tether', 'fall', 'respawn'].includes(type)) return; const log = document.getElementById('prank-log'); if (!log) return; const line = document.createElement('div'); line.textContent = message; log.prepend(line); while (log.children.length > 3) log.lastElementChild?.remove() }
 function sendInput(now: number) { if (!socket?.connected || !me) return; if (now - lastInputAt < 45) return; lastInputAt = now; socket.emit('input', input); input.jump = false; input.interact = false; input.prank = false }
@@ -402,15 +442,14 @@ ui.addEventListener('click', e => {
     return
   }
   const action = target.dataset.action
-  if (action === 'create') connect(randomCode())
-  if (action === 'single') connect(randomCode())
+  if (action === 'create' || action === 'single') connect(randomCode(), true)
   if (action === 'join') (document.getElementById('join-code') as HTMLInputElement).focus()
   if (action === 'join-code') { const code = (document.getElementById('join-code') as HTMLInputElement).value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length !== 6) toast('방 코드는 6자리예요.'); else connect(code) }
   if (action === 'ready') socket?.emit('toggle_ready')
   if (action === 'rename') rename()
   if (action === 'start') socket?.emit('start_match')
   if (action === 'rematch') socket?.emit('rematch')
-  if (action === 'result-close') { if (state?.phase === 'result') show('hud') }
+  if (action === 'mute') { audio.toggle(); paintMute(); persist() }
   if (action === 'leave') leave()
   if (action === 'copy' || action === 'copy-invite') void copyInvite()
   if (action === 'share') void shareInvite()
@@ -418,6 +457,22 @@ ui.addEventListener('click', e => {
     const open = document.querySelector('.invite-panel')?.classList.toggle('qr-open')
     target.setAttribute('aria-expanded', String(Boolean(open)))
   }
+})
+function paintMute() {
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-action="mute"]')) {
+    button.textContent = audio.muted ? '🔇' : '🔊'
+    button.setAttribute('aria-pressed', String(audio.muted))
+  }
+}
+paintMute()
+matchSelect('title', 'round-count').addEventListener('change', event => {
+  document.getElementById('title-round-badge')!.textContent = (event.target as HTMLSelectElement).value
+})
+matchSelect('lobby', 'round-count').addEventListener('change', event => {
+  socket?.emit('match_settings', { roundCount: Number((event.target as HTMLSelectElement).value) })
+})
+matchSelect('lobby', 'bot-count').addEventListener('change', event => {
+  socket?.emit('match_settings', { botCount: Number((event.target as HTMLSelectElement).value) })
 })
 const initialColor = Number(saved.colorIndex || 0)
 document.querySelectorAll<HTMLElement>('.color-pick')[initialColor]?.classList.add('is-selected')

@@ -117,7 +117,7 @@ const TAIL_START_IMMUNE_MS = 2200
 const TAIL_TRANSFER_IMMUNE_MS = 900
 
 /**
- * 미니게임 11종 라이브러리. 매치 시작마다 개인전 3 + 협동전 2를 중복 없이 뽑아 5라운드를 만든다.
+ * 미니게임 11종 라이브러리. 개인전과 협동전을 중복 없이 번갈아 배치한다.
  * `mode`는 점수 계산 방식, `type`은 서버 판정·클라이언트 렌더 방식이다.
  */
 const ROUND_LIBRARY = {
@@ -146,17 +146,19 @@ const shuffle = list => {
   }
   return copy
 }
-/** 개인전 3 + 협동전 2, 중복 없이 5라운드. 11종 풀 전체에서 뽑는다. */
-function makeRoundPlan() {
+function makeRoundPlan(roundCount = 5) {
   const pinned = String(process.env.MM_ROUND_IDS || '').split(',').map(v => v.trim()).filter(Boolean)
   if (pinned.length) {
-    const picked = [...new Set(pinned)].filter(id => Object.hasOwn(ROUND_LIBRARY, id)).map(id => ROUND_LIBRARY[id]).slice(0, 5)
+    const picked = [...new Set(pinned)]
+      .filter(id => Object.hasOwn(ROUND_LIBRARY, id))
+      .slice(0, roundCount)
+      .map(id => ROUND_LIBRARY[id])
     if (picked.length) return picked
   }
-  if (ENV_START_ROUND > 0) return LEGACY_ORDER.map(id => ROUND_LIBRARY[id])
+  if (ENV_START_ROUND > 0) return LEGACY_ORDER.slice(0, roundCount).map(id => ROUND_LIBRARY[id])
   const solo = shuffle(SOLO_POOL).slice(0, 3)
   const coop = shuffle(COOP_POOL).slice(0, 2)
-  return [solo[0], coop[0], solo[1], coop[1], solo[2]]
+  return [solo[0], coop[0], solo[1], coop[1], solo[2]].slice(0, roundCount)
 }
 const SOLO_POINTS = [1000, 800, 650, 500, 400, 300, 200, 100]
 const COLORS = ['#ff5d8f', '#57c7ff', '#a877ff', '#62e8aa', '#ffbd4a', '#ff7b68', '#61e0d1', '#f28dff']
@@ -275,7 +277,10 @@ class Room {
     this.platforms = []
     this.objects = {}
     this.pairs = []
-    this.plan = makeRoundPlan()
+    this.roundCount = 5
+    this.botCount = null
+    this.botDifficulty = 'normal'
+    this.plan = makeRoundPlan(this.roundCount)
     this.resetPractice()
   }
   resetPractice() {
@@ -322,6 +327,7 @@ class Room {
       player.socket?.disconnect(true)
       player.socket = socket
       player.disconnectedAt = 0
+      if (!this.hostId) { player.host = true; this.hostId = player.id }
       player.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }
       socket.data.room = this.code
       socket.data.playerId = player.id
@@ -334,10 +340,13 @@ class Room {
       return null
     }
     const id = socket.id
-    const seat = this.players.size + 1
+    const seat = this.availableSeat()
     player = newPlayer(id, seat, data.name, Number(data.colorIndex))
     player.host = !this.hostId
-    if (player.host) this.hostId = player.id
+    if (player.host) {
+      this.hostId = player.id
+      this.configure(player, data.matchSettings)
+    }
     player.socket = socket
     this.players.set(player.id, player)
     socket.data.room = this.code
@@ -356,17 +365,17 @@ class Room {
     p.ready = false
     if (p.host) {
       p.host = false
-      const next = this.connected()[0]
+      const next = this.humans()[0]
       if (next) { next.host = true; this.hostId = next.id; this.emitEvent('host', `${next.name}님이 새 방장이에요.`) }
       else this.hostId = ''
     }
-    if (this.phase === 'play' && this.humans().length === 0) this.setLobby('접속한 플레이어가 없어요.')
+    if (this.phase !== 'lobby' && this.humans().length === 0) this.setLobby('접속한 플레이어가 없어요.')
     this.broadcast()
   }
   setLobby(reason = '') {
     this.phase = 'lobby'; this.roundIndex = -1; this.phaseEndsAt = 0; this.round = null; this.roundResult = null
     // 대기실에서 본 라운드 순서가 그대로 경기에 쓰이도록, 새 매치 준비 시점에 한 번만 뽑는다.
-    this.plan = makeRoundPlan()
+    this.plan = makeRoundPlan(this.roundCount)
     this.resetPractice()
     for (const [id, p] of this.players) if (p.isBot) this.players.delete(id)
     this.pairs = []
@@ -388,18 +397,34 @@ class Room {
     this.emitEvent('ready', `${player.name}님이 ${player.ready ? '준비 완료' : '준비 취소'}!`)
     this.broadcast()
   }
-  start(player, difficulty = 'normal') {
+  availableSeat() {
+    const used = new Set(this.allPlayers().map(player => player.seat))
+    for (let seat = 1; seat <= MAX_PLAYERS; seat++) if (!used.has(seat)) return seat
+  }
+  configure(player, settings) {
+    if (this.phase !== 'lobby' || player.id !== this.hostId || !settings) return
+    const { roundCount, botCount } = settings
+    if ((roundCount === 3 || roundCount === 5) && roundCount !== this.roundCount) {
+      this.roundCount = roundCount
+      this.plan = makeRoundPlan(roundCount)
+    }
+    if (Number.isInteger(botCount) && botCount >= 2 && botCount <= 5) this.botCount = botCount
+  }
+  start(player, difficulty = this.botDifficulty) {
     if (this.phase !== 'lobby' || player.id !== this.hostId || this.humans().length < 1) return false
-    if (this.humans().length === 1) this.addBots(difficulty)
+    this.botDifficulty = ['easy', 'normal', 'hard'].includes(difficulty) ? difficulty : 'normal'
+    const legacyCount = this.botDifficulty === 'easy' ? 1 : this.botDifficulty === 'hard' ? 3 : 2
+    const requested = this.botCount ?? (this.humans().length === 1 ? legacyCount : 0)
+    const count = Math.min(requested, MAX_PLAYERS - this.players.size)
+    if (count > 0) this.addBots(count, this.botDifficulty)
     for (const p of this.players.values()) { p.stats = emptyStats(); p.roundStats = emptyStats(); p.respawns = 0; p.megaDeliveries = 0; p.falls = 0; p.prankSuccesses = 0; p.prankCount = 0 }
     this.roundIndex = ENV_START_ROUND >= 0 && ENV_START_ROUND < this.plan.length ? ENV_START_ROUND : 0
     this.startCountdown()
     return true
   }
-  addBots(difficulty = 'normal') {
-    const count = difficulty === 'easy' ? 1 : difficulty === 'hard' ? 3 : 2
-    for (let i = 0; i < count && this.players.size < MAX_PLAYERS; i++) {
-      const seat = this.players.size + 1
+  addBots(count, difficulty) {
+    for (let i = 0; i < count; i++) {
+      const seat = this.availableSeat()
       const bot = newPlayer(`bot-${this.code}-${i + 1}`, seat, `말랑봇${i + 1}`, (seat - 1) % COLORS.length, true, difficulty)
       bot.ready = true
       this.players.set(bot.id, bot)
@@ -414,6 +439,7 @@ class Room {
       }
     }
     this.phase = 'countdown'
+    this.roundResult = null
     this.phaseEndsAt = Date.now() + COUNTDOWN_MS
     this.roundStartedAt = 0
     for (const p of this.players.values()) { p.roundScore = 0; p.contribution = 0; p.crownTime = 0; p.carried = ''; p.roundAlive = true; p.roundStats = emptyStats(); p.partnerId = ''; p.respawning = false; p.respawnAt = 0; p.respawnReason = ''; p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }; p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }; p.slipUntil = 0; p.slowUntil = 0; p.inkUntil = 0; p.reverseUntil = 0; p.stickyUntil = 0; p.staggerUntil = 0; p.knockdownUntil = 0; p.hugUntil = 0; p.prankImmuneUntil = 0; p.spin = 0; p.motion = 'Idle'; p.motionUntil = 0; p.grabbedBy = ''; p.grabTargetId = ''; p.grabUntil = 0; p.escapePresses = 0; p.missionProgress = 0; p.missionComplete = false; p.lastBonkTargetId = '' }
@@ -584,7 +610,8 @@ class Room {
       const r = results.find(row => row.id === p.id)
       if (r) { r.points += bonus; r.total = p.score; r.missionComplete = p.missionComplete; r.missionText = m?.text || '' }
     }
-    results.sort((a, b) => b.total - a.total || b.roundScore - a.roundScore || a.seat - b.seat)
+    results.sort((a, b) =>
+      b.total - a.total || this.players.get(b.id).soloScore - this.players.get(a.id).soloScore || a.seat - b.seat)
     this.roundResult = { roundIndex: this.roundIndex, title: def.title, mode: def.mode, results, progress: this.progressValue(), recap: this.roundRecap(), pairs: this.pairs.map(pair => ({ a: pair.a, b: pair.b })) }
     for (const p of this.players.values()) p.respawning = false
     this.phase = 'result'; this.phaseEndsAt = Date.now() + RESULT_MS
@@ -707,9 +734,9 @@ class Room {
     return lines.slice(0, 4)
   }
   rematch(player) {
-    if (this.phase !== 'final' || player.id !== this.hostId) return
-    this.setLobby('새 게임 준비 완료!')
-    this.broadcast()
+    if (this.phase !== 'final' || player.id !== this.hostId || !player.socket?.connected) return
+    this.setLobby()
+    this.start(player)
   }
   handleInput(player, input) {
     if (!['lobby', 'countdown', 'play'].includes(this.phase)) return
@@ -1067,6 +1094,7 @@ class Room {
       player.jumpV = JUMP_SPEED * (player.carried === MEGA_ID ? 0.7 : 1)
       player.jumpBufferUntil = 0
       player.cooldowns.jump = now + ACTION_COOLDOWN_MS.jump
+      player.socket?.emit('cue', 'jump')
       this.tetherYank(player)
     }
     player.jumpV -= GRAVITY * dt; player.jumpY = Math.max(0, player.jumpY + player.jumpV * dt); if (!player.jumpY) player.jumpV = 0
@@ -1193,7 +1221,7 @@ class Room {
       if (player.carried) {
         if (dist(player, r.delivery) <= 2.2) {
           const item = r.bananas.find(b => b.id === player.carried)
-          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.roundScore++; player.contribution++; this.bump(player, 'deliveries') }
+          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.roundScore++; player.contribution++; this.bump(player, 'deliveries'); player.socket?.emit('cue', 'score') }
           player.carried = ''
         }
       } else {
@@ -1204,7 +1232,7 @@ class Room {
       if (player.carried) {
         if (dist(player, r.station) <= 2.2) {
           const item = r.ingredients.find(o => o.id === player.carried)
-          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++; this.bump(player, 'deliveries') }
+          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++; this.bump(player, 'deliveries'); player.socket?.emit('cue', 'score') }
           player.carried = ''
         }
       } else {
@@ -1219,7 +1247,7 @@ class Room {
       if (player.carried) {
         if (dist(player, r.tower) <= 2.2) {
           const item = r.balloons.find(o => o.id === player.carried)
-          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++; this.bump(player, 'deliveries') }
+          if (item) { item.carriedBy = ''; item.delivered = true; r.delivered++; player.contribution++; player.roundScore++; this.bump(player, 'deliveries'); player.socket?.emit('cue', 'score') }
           player.carried = ''
         }
       } else {
@@ -1392,6 +1420,7 @@ class Room {
       marker: MARKER, code: this.code, phase: this.phase, roundIndex: this.roundIndex,
       round: def ? { ...def, timeLeft: this.phase === 'play' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : (this.phase === 'countdown' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : 0) } : null,
       phaseEndsAt: this.phaseEndsAt, hostId: this.hostId, players: this.allPlayers().map(p => playerSnapshot(p, viewerId, this.round?.tails || [])),
+      matchSettings: { roundCount: this.roundCount, botCount: this.botCount },
       plan: this.plan.map(entry => ({ id: entry.id, mode: entry.mode, title: entry.title, short: entry.short, duration: entry.duration })),
       cooldownMs: ACTION_COOLDOWN_MS,
       objects: this.phase === 'lobby' ? {
@@ -1452,6 +1481,7 @@ function setupRoomSocket(socket, room, player) {
   socket.emit('state', room.snapshot())
   socket.on('input', input => room.handleInput(player, input))
   socket.on('toggle_ready', () => room.toggleReady(player))
+  socket.on('match_settings', settings => room.configure(player, settings))
   socket.on('start_match', () => room.start(player, String(socket.handshake.auth?.botDifficulty || 'normal')))
   socket.on('start_single', difficulty => room.start(player, ['easy', 'normal', 'hard'].includes(difficulty) ? difficulty : 'normal'))
   socket.on('rematch', () => room.rematch(player))
