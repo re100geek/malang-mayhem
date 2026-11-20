@@ -114,3 +114,25 @@ body[data-screen="lobby"] .toast { pointer-events: none; }
   body.touch-input[data-screen="lobby"] .action-round.pink { right: max(80px, calc(env(safe-area-inset-right) + 64px)); background: var(--pink); }
   body.touch-input[data-screen="lobby"] .action-round.prank { bottom: calc(82px + var(--bottom)); background: #b76cff; color: white; }
 }
+
+.title-screen .profile-card label { min-width: 0; }
+.title-screen .profile-card input { max-width: 100%; }
+.title-screen .color-picks { flex-wrap: wrap; padding: 4px; }
+.title-screen .color-picks .color-pick { flex: 0 0 21px; }
+
+.warmup-panel .player-list { grid-template-columns: minmax(0, 1fr); }
+.warmup-panel .player-row { gap: 7px; }
+.warmup-panel .player-row .host-tag { flex: 0 0 auto; }
+
+@media (min-width: 801px) {
+  .warmup-panel .warmup-settings { padding-top: 12px; }
+  .warmup-panel .warmup-next p { margin-top: 8px; }
+}
+
+body.touch-input[data-screen="lobby"] .prank-picker [data-prank="headbutt"] { display: none; }
+
+@media (max-width: 480px) {
+  .title-screen .profile-card { flex-wrap: wrap; }
+  .title-screen .profile-card label { flex: 1 1 100%; }
+  .title-screen .profile-card > div { min-width: 0; }
+}

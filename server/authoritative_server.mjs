@@ -6,6 +6,8 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'socket.io'
+import { createHerd, herdBotTarget, herdSnapshot, tickHerd } from './herd-round.mjs'
+import { createSwitch, createVault, moveVaultHazards, switchSnapshot, tickSwitch, vaultBotTarget, vaultCollision } from './coop-rounds.mjs'
 
 const MARKER = 'malang-mayhem-v1'
 const HOST = process.env.HOST || '127.0.0.1'
@@ -80,6 +82,7 @@ const ENV_ROUND_MS = Number(process.env.MM_ROUND_MS || 0)
 const ENV_START_ROUND = Number(process.env.MM_START_ROUND || 0)
 const COUNTDOWN_MS = Number(process.env.MM_COUNTDOWN_MS || 3000)
 const RESULT_MS = Number(process.env.MM_RESULT_MS || 6500)
+const COOP_SUCCESS_DISPLAY_MS = 1250
 const GRAB_RANGE = 1.65
 const GRAB_DURATION_MS = 1800
 const GRAB_COOLDOWN_MS = ACTION_COOLDOWN_MS.grab
@@ -114,7 +117,7 @@ const TAIL_START_IMMUNE_MS = 2200
 const TAIL_TRANSFER_IMMUNE_MS = 900
 
 /**
- * 미니게임 8종 라이브러리. 매치 시작마다 개인전 3 + 협동전 2를 중복 없이 뽑아 5라운드를 만든다.
+ * 미니게임 11종 라이브러리. 매치 시작마다 개인전 3 + 협동전 2를 중복 없이 뽑아 5라운드를 만든다.
  * `mode`는 점수 계산 방식, `type`은 서버 판정·클라이언트 렌더 방식이다.
  */
 const ROUND_LIBRARY = {
@@ -125,10 +128,13 @@ const ROUND_LIBRARY = {
   platform: { id: 'platform', type: 'platform', mode: 'solo', title: '우당탕 발판 축제', short: '안내 색 발판에서 살아남아!', duration: 75, target: 0 },
   hot_potato: { id: 'hot_potato', type: 'bomb', mode: 'solo', title: '💣 시한폭탄 넘기기', short: '폭탄을 남에게 넘겨라!', duration: ROUND_SECONDS, target: 0 },
   sweeper: { id: 'sweeper', type: 'sweeper', mode: 'solo', title: '🌪️ 빙글빙글 장애물 점프', short: '회전 막대를 점프로 넘어!', duration: ROUND_SECONDS, target: 0 },
+  herd: { id: 'herd', type: 'herd', mode: 'solo', title: '말랑이 몰아넣기', short: '미니 말랑이 뒤로 돌아가 내 골대 쪽으로 몰아요!', duration: ROUND_SECONDS, target: 0 },
+  pair_switch: { id: 'pair_switch', type: 'switch', mode: 'coop', title: '짝꿍 동시 스위치', short: '짝꿍과 각자의 발판을 동시에 밟아요!', duration: 75, target: 0 },
+  vault_delivery: { id: 'vault_delivery', type: 'vault', mode: 'coop', title: '장애물 뚫고 금고 배달', short: '두 명이 잡기로 금고를 들고 황금 배달존까지 옮겨요!', duration: 90, target: 1 },
   tail_tag: { id: 'tail_tag', type: 'tail', mode: 'solo', title: '🎯 꼬리 뺏기', short: '꼬리를 지키고 남의 꼬리를 뺏어라!', duration: ROUND_SECONDS, target: 0 },
 }
-const SOLO_POOL = ['banana', 'crown', 'platform', 'hot_potato', 'sweeper', 'tail_tag']
-const COOP_POOL = ['pizza', 'balloon']
+const SOLO_POOL = Object.values(ROUND_LIBRARY).filter(round => round.mode === 'solo')
+const COOP_POOL = Object.values(ROUND_LIBRARY).filter(round => round.mode === 'coop')
 // 테스트·수동 검증용 고정 순서(MM_START_ROUND가 지정된 경우에만 사용).
 const LEGACY_ORDER = ['banana', 'pizza', 'crown', 'balloon', 'platform']
 
@@ -140,16 +146,16 @@ const shuffle = list => {
   }
   return copy
 }
-/** 개인전 3 + 협동전 2, 중복 없이 5라운드. 8종 풀 전체에서 뽑는다. */
+/** 개인전 3 + 협동전 2, 중복 없이 5라운드. 11종 풀 전체에서 뽑는다. */
 function makeRoundPlan() {
   const pinned = String(process.env.MM_ROUND_IDS || '').split(',').map(v => v.trim()).filter(Boolean)
   if (pinned.length) {
-    const picked = pinned.map(id => ROUND_LIBRARY[id]).filter(Boolean).slice(0, 5)
+    const picked = [...new Set(pinned)].filter(id => Object.hasOwn(ROUND_LIBRARY, id)).map(id => ROUND_LIBRARY[id]).slice(0, 5)
     if (picked.length) return picked
   }
   if (ENV_START_ROUND > 0) return LEGACY_ORDER.map(id => ROUND_LIBRARY[id])
-  const solo = shuffle(SOLO_POOL).slice(0, 3).map(id => ROUND_LIBRARY[id])
-  const coop = shuffle(COOP_POOL).slice(0, 2).map(id => ROUND_LIBRARY[id])
+  const solo = shuffle(SOLO_POOL).slice(0, 3)
+  const coop = shuffle(COOP_POOL).slice(0, 2)
   return [solo[0], coop[0], solo[1], coop[1], solo[2]]
 }
 const SOLO_POINTS = [1000, 800, 650, 500, 400, 300, 200, 100]
@@ -345,6 +351,7 @@ class Room {
     const p = this.players.get(socket.data.playerId)
     if (!p || p.socket !== socket) return
     p.socket = null
+    if (this.round?.type === 'vault') this.releaseMega(p)
     p.disconnectedAt = Date.now()
     p.ready = false
     if (p.host) {
@@ -410,9 +417,12 @@ class Room {
     this.phaseEndsAt = Date.now() + COUNTDOWN_MS
     this.roundStartedAt = 0
     for (const p of this.players.values()) { p.roundScore = 0; p.contribution = 0; p.crownTime = 0; p.carried = ''; p.roundAlive = true; p.roundStats = emptyStats(); p.partnerId = ''; p.respawning = false; p.respawnAt = 0; p.respawnReason = ''; p.cooldowns = { headbutt: 0, bonk: 0, tackle: 0, hug: 0, grab: 0, jump: 0, item: 0 }; p.input = { x: 0, z: 0, jump: false, interact: false, prank: false, prankType: 'headbutt' }; p.slipUntil = 0; p.slowUntil = 0; p.inkUntil = 0; p.reverseUntil = 0; p.stickyUntil = 0; p.staggerUntil = 0; p.knockdownUntil = 0; p.hugUntil = 0; p.prankImmuneUntil = 0; p.spin = 0; p.motion = 'Idle'; p.motionUntil = 0; p.grabbedBy = ''; p.grabTargetId = ''; p.grabUntil = 0; p.escapePresses = 0; p.missionProgress = 0; p.missionComplete = false; p.lastBonkTargetId = '' }
-    this.round = this.buildRound(def)
-    if (def.mode === 'coop') this.round.mega = { id: MEGA_ID, kind: def.type === 'pizza' ? 'golden_pizza' : 'golden_trophy', name: def.type === 'pizza' ? '초대형 황금 피자' : '황금 트로피', x: MEGA_SPAWN.x, z: MEGA_SPAWN.z, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
     this.assignPairs()
+    this.round = this.buildRound(def)
+    if (def.type === 'pizza' || def.type === 'balloon') this.round.mega = { id: MEGA_ID, kind: def.type === 'pizza' ? 'golden_pizza' : 'golden_trophy', name: def.type === 'pizza' ? '초대형 황금 피자' : '황금 트로피', x: MEGA_SPAWN.x, z: MEGA_SPAWN.z, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
+    if (def.type === 'vault') {
+      this.round.mega = { id: MEGA_ID, kind: 'golden_vault', name: '황금 금고', ...MEGA_SPAWN, carriers: [], delivered: false, deliveredAt: 0, zone: { ...MEGA_ZONE }, wobbleUntil: 0 }
+    }
     for (const p of this.players.values()) { const card = SECRET_MISSIONS[(p.seat - 1 + this.roundIndex) % SECRET_MISSIONS.length]; p.secretMission = { ...card } }
     const pairLine = this.pairs.length ? ` · 고무줄 짝꿍 ${this.pairs.length}쌍` : ''
     this.emitEvent('round_intro', `${def.title} — ${def.short}${pairLine}`, { roundIndex: this.roundIndex, definition: def, plan: this.plan.map(entry => entry.id), pairs: this.pairs.map(pair => [pair.a, pair.b]) })
@@ -429,6 +439,9 @@ class Room {
       return { id: `${this.roundIndex}-${i}`, x: Math.cos(a) * radius, z: Math.sin(a) * radius, carriedBy: '', delivered: false }
     })
     const prankItems = Array.from({ length: PRANK_ITEM_COUNT }, (_, i) => { const a = (i / PRANK_ITEM_COUNT) * Math.PI * 2 + Math.random() * .4; return { id: `prank-${this.roundIndex}-${i}`, type: PRANK_TYPES[i % PRANK_TYPES.length], x: Math.cos(a) * (4 + Math.random() * 4), z: Math.sin(a) * (4 + Math.random() * 4), consumed: false, spawnedAt: Date.now(), respawnAt: 0 } })
+    if (def.type === 'herd') return { ...createHerd(this.connected()), prankItems }
+    if (def.type === 'switch') return { ...createSwitch(this.pairs), prankItems: [] }
+    if (def.type === 'vault') return { ...createVault(), prankItems: [] }
     if (def.type === 'banana') return { type: 'banana', bananas: around(18, 6.8), delivered: 0, delivery: { x: 0, z: -7 }, prankItems }
     if (def.type === 'pizza') return { type: 'pizza', ingredients: Array.from({ length: 12 }, (_, i) => ({ id: `${i}`, kind: ['dough', 'sauce', 'cheese', 'pepperoni'][i % 4], x: Math.cos(i) * 7, z: Math.sin(i) * 7, carriedBy: '', delivered: false })), delivered: 0, total: 12, station: { x: 0, z: 0 }, prankItems }
     if (def.type === 'crown') return { type: 'crown', crown: { x: 0, z: 0, owner: '' }, prankItems }
@@ -551,7 +564,7 @@ class Room {
       const order = [...this.allPlayers()].sort((a, b) => b.roundScore - a.roundScore || a.seat - b.seat)
       order.forEach((p, index) => { const points = SOLO_POINTS[index] || 0; p.score += points; p.soloScore += points; results.find(r => r.id === p.id).points = points; results.find(r => r.id === p.id).total = p.score })
     } else {
-      const progress = def.type === 'pizza' ? this.round.delivered / this.round.total : this.round.delivered / def.target
+      const progress = this.progressValue()
       const shared = Math.round(clamp(progress, 0, 1) * 600)
       const contributionTotal = this.allPlayers().reduce((n, p) => n + p.contribution, 0)
       for (const p of this.allPlayers()) {
@@ -601,7 +614,7 @@ class Room {
   progressValue() {
     if (!this.round) return 0
     if (this.round.type === 'banana' || this.round.type === 'balloon') return this.round.delivered / this.definition.target
-    if (this.round.type === 'pizza') return this.round.delivered / this.round.total
+    if (['pizza', 'switch', 'vault'].includes(this.round.type)) return this.round.delivered / Math.max(1, this.round.total)
     return 1
   }
   finalise() {
@@ -701,14 +714,14 @@ class Room {
   handleInput(player, input) {
     if (!['lobby', 'countdown', 'play'].includes(this.phase)) return
     if (!input || typeof input !== 'object') return
-    if (player.respawning) return
+    if (player.respawning || this.round?.completed) return
     let ix = clamp(Number(input.x) || 0, -1, 1), iz = clamp(Number(input.z) || 0, -1, 1)
     const inputLength = Math.hypot(ix, iz); if (inputLength > 1) { ix /= inputLength; iz /= inputLength }
     player.input.x = ix; player.input.z = iz
     player.input.jump = !!input.jump
     if (player.input.jump) player.jumpBufferUntil = Date.now() + JUMP_BUFFER_MS
     const preservePracticeAction = this.phase === 'lobby'
-    player.input.interact = !!input.interact || (preservePracticeAction && player.input.interact)
+    player.input.interact = !!input.interact || ((preservePracticeAction || this.round?.type === 'vault') && player.input.interact)
     if (input.prank || !preservePracticeAction) {
       player.input.prank = !!input.prank
       player.input.prankType = MOTION_PRANKS.includes(input.prankType) ? input.prankType : 'headbutt'
@@ -750,6 +763,7 @@ class Room {
     for (const pair of this.pairs) {
       const a = this.players.get(pair.a), b = this.players.get(pair.b)
       if (!a || !b) continue
+      if (['switch', 'vault'].includes(this.round?.type) && ((!a.isBot && !a.socket?.connected) || (!b.isBot && !b.socket?.connected))) continue
       const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz)
       pair.length = d
       const over = Math.max(0, d - TETHER_REST)
@@ -843,11 +857,13 @@ class Room {
   joinMega(player) {
     const mega = this.round?.mega
     if (!mega || mega.delivered || mega.carriers.length >= 2 || player.carried) return false
+    if (this.round.type === 'vault' && (Date.now() < mega.wobbleUntil || player.respawning || player.grabbedBy || player.jumpY > 0.12)) return false
     player.carried = MEGA_ID
     mega.carriers.push(player.id)
     this.bump(player, 'megaJoins')
     const names = mega.carriers.map(id => this.players.get(id)?.name).filter(Boolean)
-    if (mega.carriers.length >= 2) this.emitEvent('mega_grab', `${names.join('·')} 짝꿍이 ${mega.name}를 번쩍! 함께 배달존으로!`, { x: mega.x, z: mega.z, carriers: [...mega.carriers] })
+    if (mega.carriers.length >= 2) this.emitEvent(this.round.type === 'vault' ? 'vault_grab' : 'mega_grab', `${names.join('·')} 짝꿍이 ${mega.name}를 번쩍! 함께 배달존으로!`, { x: mega.x, z: mega.z, carriers: [...mega.carriers] })
+    else if (this.round.type === 'vault') this.emitEvent('mega_grab', '금고 손잡이 하나 확보! 한 명 더 잡으면 움직여요.', { x: mega.x, z: mega.z })
     else this.emitEvent('mega_grab', `${player.name}님이 ${mega.name}를 혼자 들려다 휘청! 짝꿍의 E가 필요해요.`, { x: mega.x, z: mega.z, carriers: [...mega.carriers] })
     return true
   }
@@ -863,6 +879,7 @@ class Room {
   deliverMega(carriers) {
     const mega = this.round?.mega
     if (!mega || mega.delivered) return
+    if (this.round.type === 'vault') this.round.delivered = 1
     mega.delivered = true
     mega.deliveredAt = Date.now()
     const duo = carriers.length >= 2
@@ -876,19 +893,40 @@ class Room {
     }
     mega.carriers = []
     const names = carriers.map(p => p.name).join('·')
-    this.emitEvent('mega', duo ? `${names} 짝꿍이 ${mega.name} 배달 성공! +${bonus}P 대박 보너스!` : `${names}님이 혼자 ${mega.name}를 질질 끌어 배달… +${bonus}P`, { x: mega.x, z: mega.z, duo, bonus, carriers: carriers.map(p => p.id) })
+    this.emitEvent(this.round.type === 'vault' ? 'vault_delivered' : 'mega', duo ? `${names} 짝꿍이 ${mega.name} 배달 성공! +${bonus}P 대박 보너스!` : `${names}님이 혼자 ${mega.name}를 질질 끌어 배달… +${bonus}P`, { x: mega.x, z: mega.z, duo, bonus, carriers: carriers.map(p => p.id) })
   }
   updateMega(dt) {
     const mega = this.round?.mega
     if (!mega || mega.delivered) return
+    const isVault = this.round.type === 'vault'
     const carriers = mega.carriers.map(id => this.players.get(id)).filter(p => p && !p.respawning && p.carried === MEGA_ID)
     mega.carriers = carriers.map(p => p.id)
+    if (isVault && carriers.length < 2) {
+      const [carrier] = carriers
+      if (carrier && dist(carrier, mega) > MEGA_REACH) this.releaseMega(carrier)
+      return
+    }
     for (const p of carriers) { p.megaCarryTime += dt; this.bump(p, 'megaCarryTime', dt) }
     if (!carriers.length) return
     const cx = carriers.reduce((n, p) => n + p.x, 0) / carriers.length
     const cz = carriers.reduce((n, p) => n + p.z, 0) / carriers.length
-    mega.x = cx; mega.z = cz
-    if (carriers.length >= 2 && dist(carriers[0], carriers[1]) > MEGA_SPLIT_MAX) {
+    if (isVault) {
+      const hazard = vaultCollision(this.round, { x: cx, z: cz }, carriers)
+      if (hazard) {
+        const now = Date.now()
+        for (const player of carriers) {
+          this.releaseMega(player, true)
+          player.staggerUntil = now + 550
+          player.motion = 'Hit'; player.motionUntil = now + 550
+        }
+        mega.wobbleUntil = now + 850
+        this.emitEvent('vault_hit', '금고가 장애물에 부딪혔어요! 둘이 다시 잡아요.', { x: hazard.x, z: hazard.z })
+        return
+      }
+    }
+    const tooFarApart = carriers.length === 2 && dist(carriers[0], carriers[1]) > MEGA_SPLIT_MAX
+    if (!isVault || !tooFarApart) { mega.x = cx; mega.z = cz }
+    if (tooFarApart) {
       mega.carriers = []
       for (const p of carriers) { p.carried = ''; p.staggerUntil = Date.now() + 500; p.motion = 'Hit'; p.motionUntil = Date.now() + 500 }
       mega.wobbleUntil = Date.now() + 700
@@ -1015,7 +1053,7 @@ class Room {
     const slipping = now < player.slipUntil
     const sticky = now < player.stickyUntil
     const mega = this.round?.mega
-    const megaFactor = player.carried === MEGA_ID && mega ? (mega.carriers.length >= 2 ? MEGA_PAIR_FACTOR : MEGA_SINGLE_FACTOR) : 1
+    const megaFactor = player.carried === MEGA_ID && mega ? (mega.carriers.length >= 2 ? (roundType === 'vault' ? 0.64 : MEGA_PAIR_FACTOR) : MEGA_SINGLE_FACTOR) : 1
     const speedFactor = player.grabbedBy ? .12 : now < player.knockdownUntil ? .08 : now < player.hugUntil ? .25 : now < player.staggerUntil ? .35 : now < player.slowUntil ? .42 : slipping ? BANANA_SLIP_ACCEL : 1
     const accel = sticky ? 8 : slipping ? 7 : MOVE_ACCEL
     const desiredX = input.x * reverse * MOVE_SPEED * speedFactor * megaFactor, desiredZ = input.z * reverse * MOVE_SPEED * speedFactor * megaFactor
@@ -1057,6 +1095,23 @@ class Room {
     const intervals = { easy: 260, normal: 165, hard: 95 }
     bot.nextAiAt = now + (intervals[bot.botDifficulty] || intervals.normal)
     const r = this.round
+    if (r.type === 'herd' || r.type === 'switch' || r.type === 'vault') {
+      const partner = this.partnerOf(bot)
+      let target = bot
+      if (r.type === 'herd') target = herdBotTarget(r, bot)
+      if (r.type === 'switch') target = r.gates.find(gate => !gate.opened && gate.pads.some(pad => pad.id === bot.id))?.pads.find(pad => pad.id === bot.id) ?? bot
+      if (r.type === 'vault') {
+        const teammate = this.players.get(r.mega.carriers.find(id => id !== bot.id)) ?? partner
+        target = vaultBotTarget(r, bot, teammate)
+        const waitingForHuman = partner && !partner.isBot && !r.mega.carriers.includes(partner.id) && dist(partner, r.mega) > MEGA_REACH
+        bot.input.interact = !waitingForHuman && !bot.carried && !r.mega.delivered && now >= r.mega.wobbleUntil && dist(bot, r.mega) <= 2
+      }
+      const dx = target.x - bot.x, dz = target.z - bot.z
+      const scale = 1 / Math.max(0.6, Math.hypot(dx, dz))
+      bot.input.x = dx * scale
+      bot.input.z = dz * scale
+      return
+    }
     let target = this.connected().filter(p => p.id !== bot.id).sort((a, b) => dist(bot, a) - dist(bot, b))[0]
     let objective = target
     const list = r?.type === 'banana' ? r.bananas : r?.type === 'pizza' ? r.ingredients : r?.type === 'balloon' ? r.balloons : []
@@ -1121,6 +1176,11 @@ class Room {
   updateInteraction(player) {
     const r = this.round
     if (!r || !player.input.interact) return
+    if (r.type === 'vault' && this.phase !== 'play') return
+    if (r.type === 'vault' && player.carried === MEGA_ID) {
+      this.releaseMega(player)
+      return
+    }
     const mega = r.mega
     if (mega && !mega.delivered && dist(player, mega) <= MEGA_REACH && (!player.carried || player.carried === MEGA_ID)) {
       player.input.interact = false
@@ -1173,6 +1233,8 @@ class Room {
     if (!r) return
     const now = Date.now()
     for (const item of r.prankItems || []) if (item.consumed && item.respawnAt && now >= item.respawnAt) { item.consumed = false; item.respawnAt = 0; item.spawnedAt = now; this.emitEvent('prank_respawn', `${item.type === 'banana_peel' ? '바나나 껍질' : item.type === 'jelly_pool' ? '끈적 젤리' : '장난 아이템'} 재설치!`, { itemType: item.type, x: item.x, z: item.z }) }
+    if (r.type === 'herd') tickHerd(r, this.connected(), dt, this.emitEvent.bind(this))
+    if (r.type === 'switch') tickSwitch(r, this.connected(), dt, this.emitEvent.bind(this))
     if (r.type === 'crown') {
       if (r.crown.owner) {
         const owner = this.players.get(r.crown.owner)
@@ -1288,6 +1350,11 @@ class Room {
       this.broadcast()
       return
     }
+    if (this.phase === 'play' && this.round?.completed) {
+      if (now >= this.phaseEndsAt) this.finishRound()
+      else this.broadcast()
+      return
+    }
     if (this.phase === 'countdown' || this.phase === 'play') {
       const dt = TICK_MS / 1000
       for (const p of this.connected()) {
@@ -1296,7 +1363,10 @@ class Room {
         this.updatePlayer(p, dt)
       }
       this.updateTether(dt)
-      if (this.phase === 'play') this.updateMega(dt)
+      if (this.phase === 'play') {
+        if (this.round?.type === 'vault') moveVaultHazards(this.round, dt)
+        this.updateMega(dt)
+      }
       this.separatePlayers()
       if (this.phase === 'play') this.updateRound(dt)
       if (this.phase === 'countdown') { this.broadcast(); return }
@@ -1304,6 +1374,10 @@ class Room {
       else if (this.round?.type === 'banana' && this.round.delivered >= this.definition.target) this.finishRound()
       else if (this.round?.type === 'pizza' && this.round.delivered >= this.round.total) this.finishRound()
       else if (this.round?.type === 'balloon' && this.round.delivered >= this.definition.target) this.finishRound()
+      else if (['switch', 'vault'].includes(this.round?.type) && this.round.total > 0 && this.round.delivered >= this.round.total) {
+        this.round.completed = true
+        this.phaseEndsAt = now + COOP_SUCCESS_DISPLAY_MS
+      }
       this.broadcast()
       return
     }
@@ -1335,6 +1409,9 @@ class Room {
     const mega = this.round.mega ? { ...this.round.mega, carriers: [...this.round.mega.carriers] } : null
     const prankItems = this.round.prankItems?.filter(o => !o.consumed).map(o => ({ ...o })) ?? []
     const tails = (this.round.tails || []).map(id => ({ id, color: this.players.get(id)?.color || '#ff5d8f' }))
+    if (this.round.type === 'herd') return { type: 'herd', ...herdSnapshot(this.round), prankItems }
+    if (this.round.type === 'switch') return { type: 'switch', ...switchSnapshot(this.round) }
+    if (this.round.type === 'vault') return { type: 'vault', hazards: this.round.hazards, delivered: this.round.delivered, total: this.round.total, mega }
     if (this.round.type === 'banana') return { type: 'banana', items: this.round.bananas.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), delivery: this.round.delivery, delivered: this.round.delivered, prankItems, mega, tails }
     if (this.round.type === 'pizza') return { type: 'pizza', items: this.round.ingredients.filter(o => !o.delivered && !o.broken).map(o => ({ ...o })), station: this.round.station, delivered: this.round.delivered, total: this.round.total, prankItems, mega, tails }
     if (this.round.type === 'crown') return { type: 'crown', crown: this.round.crown, prankItems, mega, tails }
