@@ -15,7 +15,7 @@ let port
 beforeAll(async () => {
   child = spawn(process.execPath, ['authoritative_server.mjs'], {
     cwd: serverDir,
-    env: { ...process.env, HOST: '127.0.0.1', PORT: '0', STATIC_ROOT: join(here, '..', 'dist'), MM_ROUND_MS: '40000', MM_COUNTDOWN_MS: '400', MM_RESULT_MS: '600' },
+    env: { ...process.env, HOST: '127.0.0.1', PORT: '0', STATIC_ROOT: join(here, '..', 'dist'), MM_ROUND_IDS: 'banana', MM_ROUND_MS: '40000', MM_COUNTDOWN_MS: '400', MM_RESULT_MS: '600' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const ready = await new Promise((resolve, reject) => {

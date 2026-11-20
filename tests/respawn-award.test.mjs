@@ -68,7 +68,7 @@ async function play(port, room) {
 
 describe('2초 즉시 리스폰', () => {
   test('아레나 밖으로 나가면 2초 카운트다운 뒤 안전 위치로 복귀하고 짧은 무적이 붙는다', async () => {
-    const { child, port } = await startServer({ MM_ROUND_MS: '30000', MM_COUNTDOWN_MS: '400', MM_RESULT_MS: '600' })
+    const { child, port } = await startServer({ MM_ROUND_IDS: 'banana', MM_ROUND_MS: '30000', MM_COUNTDOWN_MS: '400', MM_RESULT_MS: '600' })
     const session = await play(port, 'RESP01')
     try {
       const startedFalls = session.viewA.state.players.find(player => player.id === session.id).falls

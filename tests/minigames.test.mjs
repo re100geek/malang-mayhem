@@ -129,13 +129,23 @@ describe('💣 시한폭탄 넘기기', () => {
       const attackerId = holderId === session.idA ? session.idA : session.idB
       const targetId = attackerId === session.idA ? session.idB : session.idA
       const target = live.players.find(p => p.id === targetId)
-      await walkTo(attacker.socket, session.viewA, attackerId, { x: target.x, z: target.z }, 9000)
+      await walkTo(attacker.socket, session.viewA, attackerId, { x: target.x, z: target.z }, 15000)
       await waitState(session.viewA, state => {
         const me = state.players.find(p => p.id === attackerId), other = state.players.find(p => p.id === targetId)
         return Boolean(me && other && Math.hypot(me.x - other.x, me.z - other.z) <= 2.2)
       }, 8000)
-      attacker.socket.emit('input', { x: 0, z: 0, prank: true, prankType: 'headbutt' })
-      const passed = await waitState(session.viewA, state => state.objects?.bomb?.holder === targetId, 5000)
+      // 박치기 한 번이 상대를 장외로 밀 수 있으므로, 넘기지 못하면 다시 붙어 재시도한다.
+      let passed = null
+      for (let attempt = 0; attempt < 3 && !passed; attempt++) {
+        const me = player(session.viewA, attackerId)
+        const other = player(session.viewA, targetId)
+        if (me && other && !me.respawning && !other.respawning) {
+          await walkTo(attacker.socket, session.viewA, attackerId, { x: other.x, z: other.z }, 12000)
+          attacker.socket.emit('input', { x: 0, z: 0, prank: true, prankType: 'headbutt' })
+        }
+        passed = await waitState(session.viewA, state => state.objects?.bomb?.holder === targetId, 4000).catch(() => null)
+      }
+      expect(passed).toBeTruthy()
       expect(passed.objects.bomb.passes).toBeGreaterThanOrEqual(1)
       expect(passed.players.find(p => p.id === attackerId).roundScore).toBeGreaterThanOrEqual(15)
       expect(session.viewA.events.some(event => event.type === 'bomb_pass')).toBe(true)

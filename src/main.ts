@@ -172,8 +172,8 @@ function renderState() {
   document.body.classList.toggle('inked', statuses.ink > 0)
   // 서버가 준 쿨타임 표를 기준으로, 클라이언트에서도 같은 시간만큼 즉시 잠근다.
   cooldownTable = { ...FALLBACK_CD_MS, ...((state as any).cooldownMs || {}) }
-  serverCd = { ...((mine?.cooldowns || {}) as Record<string, number>) }
-  serverCdAt = performance.now()
+  serverRemain = { ...((mine?.cooldowns || {}) as Record<string, number>) }
+  meRespawning = Boolean(mine?.respawning)
   paintCooldowns()
   renderObjective(state, mine)
 }
@@ -205,8 +205,10 @@ const PRANK_ICONS: Record<string, string> = { headbutt: '😈', bonk: '🔨', ta
 // 서버 ACTION_COOLDOWN_MS와 같은 기본값. state.cooldownMs가 오면 그 값이 우선한다.
 const FALLBACK_CD_MS: Record<string, number> = { headbutt: 1500, bonk: 2000, tackle: 2800, hug: 2500, grab: 800, jump: 180 }
 let cooldownTable: Record<string, number> = { ...FALLBACK_CD_MS }
-let serverCd: Record<string, number> = {}
-let serverCdAt = 0
+// 마지막 스냅샷이 알려 준 남은 쿨타임. 내가 직접 발동한 동작은 로컬 잠금이 우선이라
+// 지연 도착한 스냅샷 때문에 게이지가 뒤로 튀지 않는다.
+let serverRemain: Record<string, number> = {}
+let meRespawning = false
 const localCds: Record<string, number> = {}
 let sentPrankCount = 0
 let lastCast: Record<string, unknown> = {}
@@ -216,8 +218,8 @@ function cooldownMs(type: string) { return cooldownTable[type] || FALLBACK_CD_MS
 /** 남은 쿨타임(ms) = max(내가 즉시 잠근 시간, 서버 스냅샷의 남은 시간). */
 function remainingMs(type: string) {
   const local = Math.max(0, (localCds[type] || 0) - performance.now())
-  const fromServer = Math.max(0, (serverCd[type] || 0) - (performance.now() - serverCdAt))
-  return Math.max(local, fromServer)
+  if (local > 0) return local
+  return Math.max(0, serverRemain[type] || 0)
 }
 function lockLocal(type: string, extra = 0) { localCds[type] = Math.max(localCds[type] || 0, performance.now() + cooldownMs(type) + extra) }
 function flashBlocked(type: string) {
@@ -241,7 +243,7 @@ function selectPrank(type: string, trigger = false) {
   if (icon) icon.textContent = PRANK_ICONS[type] || '😈'
   if (!trigger) { paintCooldowns(); return }
   const remain = remainingMs(type)
-  if (remain > 0) { flashBlocked(type); paintCooldowns(); return }
+  if (remain > 0 || meRespawning) { flashBlocked(type); paintCooldowns(); return }
   if (!socket?.connected || !me) { toast('아직 서버에 연결되지 않았어요.'); return }
   lockLocal(type, 60)
   lastCast = { kind: 'prank', type, before: remain, lockedUntil: localCds[type], now: performance.now(), table: cooldownTable[type] }
@@ -254,7 +256,7 @@ function selectPrank(type: string, trigger = false) {
 /** 점프·잡기처럼 실패해도 손해가 없는 동작은 같은 방식으로 즉시 잠그고 보낸다. */
 function pressAction(kind: 'jump' | 'interact') {
   const type = kind === 'jump' ? 'jump' : 'grab'
-  if (remainingMs(type) > 0) { flashBlocked(type); paintCooldowns(); return }
+  if (remainingMs(type) > 0 || meRespawning) { flashBlocked(type); paintCooldowns(); return }
   if (!socket?.connected || !me) return
   lockLocal(type, 40)
   lastCast = { kind, type, lockedUntil: localCds[type], now: performance.now(), table: cooldownTable[type] }
@@ -519,7 +521,7 @@ if (new URLSearchParams(location.search).has('debug')) {
       shownCd: { ...shownCd },
       jumpCooling: document.getElementById('jump-btn')?.classList.contains('is-cooling'),
       grabCooling: document.getElementById('interact-btn')?.classList.contains('is-cooling'),
-      cds: { local: { ...localCds }, server: { ...serverCd }, at: Math.round(serverCdAt), table: { ...cooldownTable }, lastCast, now: Math.round(performance.now()) },
+      cds: { local: { ...localCds }, serverRemain: { ...serverRemain }, table: { ...cooldownTable }, lastCast, respawning: meRespawning, now: Math.round(performance.now()) },
       objects: (state?.objects as any)?.type,
       objective: document.getElementById('objective-text')?.textContent,
       progress: document.getElementById('progress-text')?.textContent,

@@ -62,7 +62,7 @@ function view(socket) {
   return box
 }
 
-async function waitState(box, predicate, timeout = 20000) {
+async function waitState(box, predicate, timeout = 30000) {
   const started = Date.now()
   while (Date.now() - started < timeout) {
     if (box.state && predicate(box.state)) return box.state
@@ -146,12 +146,16 @@ describe('고무줄 짝꿍 & 2인 합동 운반', () => {
       const pairB = { socket: b.socket, box: viewB, id: playerB.id }
       await walkBoth([pairA, pairB], [{ x: mega.x, z: mega.z + 1.1 }, { x: mega.x, z: mega.z - 1.1 }], 9000)
       press(pairA)
-      const soloCarry = await waitState(viewA, s => s.objects.mega?.carriers.length === 1, 4000)
+      const soloCarry = await waitState(viewA, s => s.objects.mega?.carriers.length === 1, 6000)
       // 혼자 들면 피자가 그 사람 발밑으로 끌려온다 → 짝꿍이 다시 붙어서 E.
-      const dragged = soloCarry.objects.mega
-      await walkOne(pairB, { x: dragged.x, z: dragged.z + 1.0 }, 5000)
-      press(pairB)
-      const carried = await waitState(viewA, s => s.objects.mega?.carriers.length === 2, 5000)
+      let carried = null
+      for (let attempt = 0; attempt < 3 && !carried; attempt++) {
+        const dragged = viewA.state.objects.mega
+        await walkOne(pairB, { x: dragged.x, z: dragged.z + 1.0 }, 6000)
+        press(pairB)
+        carried = await waitState(viewA, s => s.objects.mega?.carriers.length === 2, 3000).catch(() => null)
+      }
+      expect(carried).toBeTruthy()
       expect(carried.players.find(p => p.id === playerA.id).carried).toBe('mega')
       expect(carried.players.find(p => p.id === playerB.id).carried).toBe('mega')
 

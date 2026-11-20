@@ -98,9 +98,9 @@ describe.skipIf(!hasBrowser)('모바일 터치 스킬·쿨타임', () => {
       expect(tackle.shownCd.headbutt).toMatch(/\d/)
 
       // 3) 픽커 게이지가 줄어든다(서버가 내려준 쿨타임 표를 클라이언트가 그대로 쓴다).
-      await page.waitForTimeout(900)
+      await page.waitForTimeout(2500)
       const ticked = await snap(page)
-      expect(parseFloat(ticked.shownCd.tackle)).toBeLessThan(parseFloat(tackle.shownCd.tackle))
+      expect(parseFloat(ticked.shownCd.tackle)).toBeLessThan(parseFloat(tackle.shownCd.tackle) - 0.5)
 
       // 4) 태클도 같은 스킬 재터치는 막힌다.
       await tapAt('[data-prank="tackle"]')

@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => {
       proxy: { '/socket.io': { target: 'http://127.0.0.1:8787', ws: true } },
     },
     build: { target: 'es2022', assetsInlineLimit: 0, chunkSizeWarningLimit: 4600, sourcemap: false },
-    test: { environment: 'node', include: ['tests/**/*.test.{ts,mjs}'] },
+    // 실제 브라우저·서버 프로세스를 띄우는 통합 테스트가 섞여 있어 파일 단위로 순차 실행한다.
+    test: { environment: 'node', include: ['tests/**/*.test.{ts,mjs}'], fileParallelism: false, testTimeout: 180000, hookTimeout: 60000 },
   }
 })

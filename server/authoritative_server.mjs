@@ -880,7 +880,7 @@ class Room {
       return
     }
     if (!player.input.interact || now < player.cooldowns.grab) return
-    const target = this.connected().filter(p => p.id !== player.id && !p.grabbedBy && dist(player, p) <= GRAB_RANGE).sort((a, b) => dist(player, a) - dist(player, b))[0]
+    const target = this.connected().filter(p => p.id !== player.id && !p.grabbedBy && !p.respawning && dist(player, p) <= GRAB_RANGE).sort((a, b) => dist(player, a) - dist(player, b))[0]
     if (!target) return
     player.input.interact = false; player.grabTargetId = target.id; player.grabUntil = now + GRAB_DURATION_MS; player.cooldowns.grab = now + GRAB_COOLDOWN_MS; target.grabbedBy = player.id; target.escapePresses = 0; this.bump(player, 'grabs')
     if (this.round?.type === 'bomb' && this.round.bomb?.holder === player.id) this.passBomb(player, target, now)
@@ -904,7 +904,7 @@ class Room {
     attacker.cooldowns[prankType] = now + ACTION_COOLDOWN_MS[prankType]
     const motionNames = { headbutt: 'Bonk', bonk: 'Bonk', tackle: 'Bonk', hug: 'Bonk' }
     attacker.motion = motionNames[prankType]; attacker.motionUntil = now + 700
-    const target = this.connected().filter(p => p.id !== attacker.id && dist(attacker, p) <= PRANK_RANGE).sort((a, b) => dist(attacker, a) - dist(attacker, b))[0]
+    const target = this.connected().filter(p => p.id !== attacker.id && !p.respawning && dist(attacker, p) <= PRANK_RANGE).sort((a, b) => dist(attacker, a) - dist(attacker, b))[0]
     if (!target || now < target.prankImmuneUntil) return
     const dx = target.x - attacker.x, dz = target.z - attacker.z, length = Math.hypot(dx, dz) || 1
     const nx = dx / length, nz = dz / length
