@@ -1247,7 +1247,7 @@ class Room {
       marker: MARKER, code: this.code, phase: this.phase, roundIndex: this.roundIndex,
       round: def ? { ...def, timeLeft: this.phase === 'play' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : (this.phase === 'countdown' ? Math.max(0, (this.phaseEndsAt - Date.now()) / 1000) : 0) } : null,
       phaseEndsAt: this.phaseEndsAt, hostId: this.hostId, players: this.allPlayers().map(p => playerSnapshot(p, viewerId, this.round?.tails || [])),
-      plan: this.plan.map(entry => ({ id: entry.id, mode: entry.mode, title: entry.title })),
+      plan: this.plan.map(entry => ({ id: entry.id, mode: entry.mode, title: entry.title, short: entry.short, duration: entry.duration })),
       cooldownMs: ACTION_COOLDOWN_MS,
       objects: this.round ? this.serializedObjects() : {}, platforms: this.platforms,
       pairs: this.pairs.map(pair => ({ a: pair.a, b: pair.b, length: Number((pair.length || 0).toFixed(2)), tension: Number((pair.tension || 0).toFixed(2)), rest: TETHER_REST, max: TETHER_MAX })),
