@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "build": "malang-mayhem-v1",
+  "signalingUrl": "",
+  "iceTransportPolicy": "all"
+}
